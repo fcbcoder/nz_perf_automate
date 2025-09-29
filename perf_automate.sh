@@ -179,22 +179,14 @@ check_nzsql_availability() {
 check_netezza_system_state() {
     print_header "NETEZZA SYSTEM STATE ANALYSIS"
     
-    # Basic system information first
+    # Basic system information
     print_section "Basic System Information"
     execute_sql "SELECT VERSION();" "Database Version" true
     execute_sql "SELECT CURRENT_USER, CURRENT_DATABASE, CURRENT_TIMESTAMP;" "Current Connection" true
     
-    # Try different system state views
-    print_section "System State"
-    if ! execute_sql "SELECT * FROM _V_SYSTEM_STATE;" "System State (_V_SYSTEM_STATE)"; then
-        if ! execute_sql "SELECT * FROM V_SYSTEM_STATE;" "System State (V_SYSTEM_STATE)"; then
-            execute_sql "SELECT 'System state view not available' AS MESSAGE;" "System State Fallback"
-        fi
-    fi
-    
-    # Database information with fallbacks
+    # Database information (available in your environment)
     print_section "Database Information"
-    if ! execute_sql "
+    execute_sql "
     SELECT 
         DATABASE,
         OWNER,
@@ -202,15 +194,11 @@ check_netezza_system_state() {
         ROUND(USED_BYTES/1024/1024/1024, 2) AS USED_GB,
         ROUND(SKEW/100.0, 2) AS SKEW_PCT
     FROM _V_DATABASE 
-    ORDER BY USED_BYTES DESC;" "Database Sizes (_V_DATABASE)"; then
-        if ! execute_sql "SELECT DATNAME, DATDBA FROM PG_DATABASE;" "Database List (PostgreSQL style)"; then
-            execute_sql "SELECT DATABASE FROM _T_DATABASE;" "Database List (fallback)"
-        fi
-    fi
+    ORDER BY USED_BYTES DESC;" "Database Sizes and Usage"
     
-    # Disk usage with fallbacks
-    print_section "Disk Usage"
-    if ! execute_sql "
+    # Disk usage (available in your environment)
+    print_section "Disk Usage by Host"
+    execute_sql "
     SELECT 
         HOST,
         FILESYSTEM,
@@ -219,27 +207,55 @@ check_netezza_system_state() {
         ROUND(FREE_BYTES/1024/1024/1024, 2) AS FREE_GB,
         ROUND((USED_BYTES*100.0/TOTAL_BYTES), 2) AS USED_PCT
     FROM _V_DISK
-    ORDER BY USED_PCT DESC;" "Disk Usage (_V_DISK)"; then
-        if ! execute_sql "SELECT * FROM V_DISK;" "Disk Usage (V_DISK)"; then
-            execute_sql "SELECT 'Disk usage view not available' AS MESSAGE;" "Disk Usage Fallback"
-        fi
-    fi
+    ORDER BY USED_PCT DESC;" "Disk Usage Analysis"
     
-    # System configuration with fallbacks
-    print_section "System Configuration"
-    if ! execute_sql "
+    # Additional disk information
+    execute_sql "
+    SELECT 
+        HOST,
+        COUNT(*) AS DISK_COUNT,
+        ROUND(SUM(TOTAL_BYTES)/1024/1024/1024, 2) AS TOTAL_GB_ALL,
+        ROUND(SUM(USED_BYTES)/1024/1024/1024, 2) AS USED_GB_ALL,
+        ROUND(AVG((USED_BYTES*100.0/TOTAL_BYTES)), 2) AS AVG_USED_PCT
+    FROM _V_DISK
+    GROUP BY HOST
+    ORDER BY HOST;" "Disk Summary by Host"
+    
+    # Backup information (if available)
+    print_section "Recent Backup History"
+    execute_sql "
+    SELECT 
+        DATABASE,
+        BACKUP_TYPE,
+        START_TIME,
+        END_TIME,
+        STATUS,
+        ROUND(EXTRACT(EPOCH FROM (END_TIME - START_TIME))/60, 2) AS DURATION_MINUTES
+    FROM _V_BACKUP_HISTORY 
+    WHERE START_TIME > NOW() - INTERVAL '7 DAYS'
+    ORDER BY START_TIME DESC
+    LIMIT 10;" "Recent Backup Activity"
+    
+    # Security and authentication settings
+    print_section "Authentication Settings"
+    execute_sql "
     SELECT 
         NAME,
         VALUE,
         DESCRIPTION
-    FROM _V_SYSTEM_CONFIG 
-    WHERE NAME IN ('SYSTEM.HOSTNAME', 'SYSTEM.VERSION', 'SYSTEM.MAX_SESSIONS', 
-                   'SYSTEM.MEMORY.TOTAL', 'SYSTEM.CPU.COUNT')
-    ORDER BY NAME;" "System Configuration (_V_SYSTEM_CONFIG)"; then
-        if ! execute_sql "SELECT * FROM V_SYSTEM_CONFIG LIMIT 10;" "System Configuration (V_SYSTEM_CONFIG)"; then
-            execute_sql "SELECT 'System configuration view not available' AS MESSAGE;" "System Configuration Fallback"
-        fi
-    fi
+    FROM _V_AUTHENTICATION_SETTINGS
+    ORDER BY NAME;" "Authentication Configuration"
+    
+    # Schema information
+    print_section "Schema Summary"
+    execute_sql "
+    SELECT 
+        SCHEMA,
+        OWNER,
+        CREATEDATE
+    FROM _V_SCHEMA
+    WHERE SCHEMA NOT LIKE 'TEMP_%'
+    ORDER BY SCHEMA;" "Database Schemas"
 }
 
 #=============================================================================
@@ -249,55 +265,85 @@ check_netezza_system_state() {
 check_os_performance() {
     print_header "LINUX OS PERFORMANCE MONITORING"
     
-    # Host system information
-    print_section "Host System Status"
+    print_section "CPU Performance Information"
+    # CPU information (available in your environment)
     execute_sql "
     SELECT 
         HOST,
-        CPU_USER_PCT,
-        CPU_SYSTEM_PCT,
-        CPU_IDLE_PCT,
-        ROUND(MEMORY_USED_BYTES/1024/1024/1024, 2) AS MEMORY_USED_GB,
-        ROUND(MEMORY_FREE_BYTES/1024/1024/1024, 2) AS MEMORY_FREE_GB,
-        ROUND((MEMORY_USED_BYTES*100.0/(MEMORY_USED_BYTES+MEMORY_FREE_BYTES)), 2) AS MEMORY_USED_PCT,
-        SWAP_USED_BYTES/1024/1024 AS SWAP_USED_MB,
-        LOAD_AVERAGE_1MIN,
-        LOAD_AVERAGE_5MIN,
-        LOAD_AVERAGE_15MIN
-    FROM _V_HOST
-    ORDER BY HOST;" "Host Performance Metrics"
+        CPU_NUMBER,
+        CPU_TYPE,
+        CPU_SPEED_MHZ,
+        CPU_UTILIZATION_PCT
+    FROM _V_CPU
+    ORDER BY HOST, CPU_NUMBER;" "CPU Details by Host"
     
-    # System processes
-    print_section "Top System Processes"
+    print_section "Disk Performance Monitoring"
+    # Disk performance and error monitoring
     execute_sql "
     SELECT 
         HOST,
-        PID,
-        SUBSTR(COMMAND, 1, 50) AS COMMAND,
-        CPU_PCT,
-        MEMORY_PCT,
-        VSZ_KB/1024 AS VSZ_MB,
-        RSS_KB/1024 AS RSS_MB
-    FROM _V_SYSTEM_PROCESSES 
-    WHERE CPU_PCT > 1.0 OR MEMORY_PCT > 1.0
-    ORDER BY CPU_PCT DESC, MEMORY_PCT DESC
-    LIMIT 20;" "Resource Intensive Processes"
+        FILESYSTEM,
+        READS_PER_SEC,
+        WRITES_PER_SEC,
+        ROUND(READ_KB_PER_SEC, 2) AS READ_KB_SEC,
+        ROUND(WRITE_KB_PER_SEC, 2) AS WRITE_KB_SEC,
+        ROUND(UTILIZATION_PCT, 2) AS UTIL_PCT
+    FROM _V_DISK
+    WHERE READS_PER_SEC > 0 OR WRITES_PER_SEC > 0
+    ORDER BY UTIL_PCT DESC;" "Disk I/O Performance"
     
-    # I/O Statistics
-    print_section "I/O Performance"
+    print_section "SCSI Error Monitoring"
+    # SCSI errors (hardware issues)
     execute_sql "
     SELECT 
         HOST,
         DEVICE,
-        READS_PER_SEC,
-        WRITES_PER_SEC,
-        READ_KB_PER_SEC,
-        WRITE_KB_PER_SEC,
-        ROUND(AVG_QUEUE_SIZE, 2) AS AVG_QUEUE_SIZE,
-        ROUND(UTIL_PCT, 2) AS UTIL_PCT
-    FROM _V_SYSTEM_IO
-    WHERE UTIL_PCT > 10
-    ORDER BY UTIL_PCT DESC;" "I/O Statistics"
+        ERROR_TYPE,
+        ERROR_COUNT,
+        LAST_ERROR_TIME
+    FROM _V_SCSI_ERRORS
+    WHERE ERROR_COUNT > 0
+    ORDER BY ERROR_COUNT DESC;" "SCSI Hardware Errors"
+    
+    print_section "System Disk Enclosure Status"
+    # Disk enclosure information
+    execute_sql "
+    SELECT 
+        HOST,
+        ENCLOSURE_ID,
+        ENCLOSURE_TYPE,
+        STATUS,
+        TEMPERATURE_C,
+        FAN_SPEED_RPM
+    FROM _V_DISKENCLOSURE
+    ORDER BY HOST, ENCLOSURE_ID;" "Disk Enclosure Health"
+    
+    print_section "SPA (System Performance Analysis)"
+    # System performance analysis data
+    execute_sql "
+    SELECT 
+        HOST,
+        TIMESTAMP,
+        METRIC_NAME,
+        METRIC_VALUE,
+        UNITS
+    FROM _V_SPA
+    WHERE TIMESTAMP > NOW() - INTERVAL '1 HOUR'
+    AND METRIC_NAME IN ('CPU_USAGE', 'MEMORY_USAGE', 'DISK_USAGE', 'NETWORK_USAGE')
+    ORDER BY TIMESTAMP DESC, HOST
+    LIMIT 20;" "Recent System Performance Metrics"
+    
+    print_section "Connection Information"
+    # Active connections
+    execute_sql "
+    SELECT 
+        HOST,
+        CONNECTION_TYPE,
+        COUNT(*) AS CONNECTION_COUNT,
+        MAX(CONNECT_TIME) AS LATEST_CONNECTION
+    FROM _V_CONNECTION
+    GROUP BY HOST, CONNECTION_TYPE
+    ORDER BY CONNECTION_COUNT DESC;" "System Connections Summary"
 }
 
 #=============================================================================
@@ -307,112 +353,187 @@ check_os_performance() {
 check_active_sessions() {
     print_header "ACTIVE SESSIONS AND SQL ANALYSIS"
     
-    # Top active sessions
-    print_section "Top Active Sessions (Running > ${LONG_RUNNING_QUERY_HOURS} hours)"
+    # Current active sessions (using available _V_SESSION)
+    print_section "All Active Sessions"
     execute_sql "
     SELECT 
-        s.SESSIONID,
-        s.USERNAME,
-        s.DBNAME,
-        s.CLIENT_IP,
-        s.CLIENT_PID,
-        s.STATE,
-        ROUND(EXTRACT(EPOCH FROM (NOW() - s.LOGON_TIME))/3600, 2) AS SESSION_HOURS,
-        ROUND(EXTRACT(EPOCH FROM (NOW() - COALESCE(s.QUERY_START_TIME, s.LOGON_TIME)))/3600, 2) AS QUERY_HOURS,
-        s.PRIORITY,
-        SUBSTR(COALESCE(t.SQL, 'No active query'), 1, 100) AS CURRENT_SQL
-    FROM _V_SESSION s
-    LEFT JOIN _V_SQL_TEXT t ON s.SESSIONID = t.SESSIONID
-    WHERE s.STATE IN ('active', 'queued', 'paused')
-    AND EXTRACT(EPOCH FROM (NOW() - s.LOGON_TIME))/3600 > ${LONG_RUNNING_QUERY_HOURS}
-    ORDER BY QUERY_HOURS DESC
+        SESSIONID,
+        USERNAME,
+        DBNAME,
+        CLIENT_IP,
+        CLIENT_PID,
+        STATE,
+        PRIORITY,
+        ROUND(EXTRACT(EPOCH FROM (NOW() - LOGON_TIME))/3600, 2) AS SESSION_HOURS,
+        CASE 
+            WHEN QUERY_START_TIME IS NOT NULL THEN 
+                ROUND(EXTRACT(EPOCH FROM (NOW() - QUERY_START_TIME))/60, 2)
+            ELSE NULL 
+        END AS QUERY_MINUTES
+    FROM _V_SESSION
+    WHERE STATE != 'idle'
+    ORDER BY SESSION_HOURS DESC;" "Active Sessions Overview"
+    
+    # Long running sessions
+    print_section "Long Running Sessions (> ${LONG_RUNNING_QUERY_HOURS} hours)"
+    execute_sql "
+    SELECT 
+        SESSIONID,
+        USERNAME,
+        DBNAME,
+        STATE,
+        CLIENT_IP,
+        ROUND(EXTRACT(EPOCH FROM (NOW() - LOGON_TIME))/3600, 2) AS SESSION_HOURS,
+        CASE 
+            WHEN QUERY_START_TIME IS NOT NULL THEN 
+                ROUND(EXTRACT(EPOCH FROM (NOW() - QUERY_START_TIME))/60, 2)
+            ELSE NULL 
+        END AS QUERY_MINUTES,
+        PRIORITY
+    FROM _V_SESSION
+    WHERE EXTRACT(EPOCH FROM (NOW() - LOGON_TIME))/3600 > ${LONG_RUNNING_QUERY_HOURS}
+    ORDER BY SESSION_HOURS DESC
     LIMIT ${TOP_SESSIONS_LIMIT};" "Long Running Sessions"
     
-    # All active sessions summary
-    print_section "Current Active Sessions Summary"
+    # Session state summary
+    print_section "Session State Summary"
     execute_sql "
     SELECT 
         STATE,
         COUNT(*) AS SESSION_COUNT,
-        ROUND(AVG(EXTRACT(EPOCH FROM (NOW() - LOGON_TIME))/3600), 2) AS AVG_SESSION_HOURS
+        ROUND(AVG(EXTRACT(EPOCH FROM (NOW() - LOGON_TIME))/3600), 2) AS AVG_SESSION_HOURS,
+        MIN(USERNAME) AS EXAMPLE_USER
     FROM _V_SESSION
-    WHERE STATE != 'idle'
     GROUP BY STATE
-    ORDER BY SESSION_COUNT DESC;" "Session State Summary"
+    ORDER BY SESSION_COUNT DESC;" "Session States"
     
-    # Current executing queries
-    print_section "Currently Executing Queries"
+    # Session details by user
+    print_section "Sessions by User"
     execute_sql "
     SELECT 
-        s.SESSIONID,
-        s.USERNAME,
-        s.DBNAME,
-        s.STATE,
-        ROUND(EXTRACT(EPOCH FROM (NOW() - s.QUERY_START_TIME))/60, 2) AS QUERY_MINUTES,
-        SUBSTR(t.SQL, 1, 150) AS SQL_TEXT
-    FROM _V_SESSION s
-    JOIN _V_SQL_TEXT t ON s.SESSIONID = t.SESSIONID
-    WHERE s.STATE = 'active' 
-    AND s.QUERY_START_TIME IS NOT NULL
-    ORDER BY QUERY_MINUTES DESC;" "Active Queries"
+        USERNAME,
+        COUNT(*) AS SESSION_COUNT,
+        COUNT(CASE WHEN STATE = 'active' THEN 1 END) AS ACTIVE_SESSIONS,
+        COUNT(CASE WHEN STATE = 'idle' THEN 1 END) AS IDLE_SESSIONS,
+        ROUND(AVG(EXTRACT(EPOCH FROM (NOW() - LOGON_TIME))/3600), 2) AS AVG_SESSION_HOURS
+    FROM _V_SESSION
+    GROUP BY USERNAME
+    HAVING COUNT(*) > 1
+    ORDER BY SESSION_COUNT DESC;" "User Session Summary"
+    
+    # Detailed session information
+    print_section "Detailed Session Information"
+    execute_sql "
+    SELECT 
+        SESSIONID,
+        USERNAME,
+        DBNAME,
+        STATE,
+        CLIENT_IP,
+        LOGON_TIME,
+        QUERY_START_TIME,
+        PRIORITY,
+        CASE 
+            WHEN STATE = 'active' AND QUERY_START_TIME IS NOT NULL THEN 'Currently executing query'
+            WHEN STATE = 'idle' THEN 'Session idle'
+            ELSE STATE
+        END AS STATUS_DESCRIPTION
+    FROM _V_SESSION
+    WHERE STATE IN ('active', 'queued', 'paused')
+    ORDER BY LOGON_TIME DESC;" "Active Session Details"
 }
 
 check_query_performance() {
     print_header "QUERY PERFORMANCE ANALYSIS"
     
-    # Top queries by elapsed time (last 24 hours)
+    # Query history analysis (using available _V_QRYHIST)
     print_section "Top Queries by Elapsed Time (Last 24 Hours)"
     execute_sql "
     SELECT 
-        h.SESSIONID,
-        h.USERNAME,
-        h.DBNAME,
-        ROUND(h.ELAPSED_TIME/1000000, 2) AS ELAPSED_SECONDS,
-        ROUND(h.COMPILE_TIME/1000000, 2) AS COMPILE_SECONDS,
-        h.QUEUE_TIME/1000000 AS QUEUE_SECONDS,
-        h.ROWS_INSERTED + h.ROWS_UPDATED + h.ROWS_DELETED + h.ROWS_RETURNED AS TOTAL_ROWS,
-        h.MEMORY_USAGE_BYTES/1024/1024 AS MEMORY_MB,
-        SUBSTR(t.SQL, 1, 100) AS SQL_TEXT
-    FROM _V_QRYHIST h
-    JOIN _V_SQL_TEXT t ON h.SESSIONID = t.SESSIONID
-    WHERE h.END_TIME > NOW() - INTERVAL '24 HOURS'
-    AND h.ELAPSED_TIME > ${LONG_RUNNING_QUERY_HOURS} * 3600 * 1000000
-    ORDER BY h.ELAPSED_TIME DESC
+        SESSIONID,
+        USERNAME,
+        DBNAME,
+        START_TIME,
+        END_TIME,
+        ROUND(ELAPSED_TIME/1000000, 2) AS ELAPSED_SECONDS,
+        ROUND(COMPILE_TIME/1000000, 2) AS COMPILE_SECONDS,
+        ROUND(QUEUE_TIME/1000000, 2) AS QUEUE_SECONDS,
+        ROWS_INSERTED + ROWS_UPDATED + ROWS_DELETED + ROWS_RETURNED AS TOTAL_ROWS,
+        ROUND(MEMORY_USAGE_BYTES/1024/1024, 2) AS MEMORY_MB,
+        STATUS
+    FROM _V_QRYHIST
+    WHERE END_TIME > NOW() - INTERVAL '24 HOURS'
+    AND ELAPSED_TIME > ${LONG_RUNNING_QUERY_HOURS} * 3600 * 1000000
+    ORDER BY ELAPSED_TIME DESC
     LIMIT ${TOP_QUERIES_LIMIT};" "Slowest Queries (24h)"
     
     # Top queries by CPU usage
     print_section "Top Queries by CPU Usage (Last 24 Hours)"
     execute_sql "
     SELECT 
-        h.SESSIONID,
-        h.USERNAME,
-        h.DBNAME,
-        ROUND(h.ELAPSED_TIME/1000000, 2) AS ELAPSED_SECONDS,
-        h.CPU_TIME/1000000 AS CPU_SECONDS,
-        ROUND((h.CPU_TIME * 100.0 / h.ELAPSED_TIME), 2) AS CPU_PCT,
-        h.MEMORY_USAGE_BYTES/1024/1024 AS MEMORY_MB,
-        SUBSTR(t.SQL, 1, 100) AS SQL_TEXT
-    FROM _V_QRYHIST h
-    JOIN _V_SQL_TEXT t ON h.SESSIONID = t.SESSIONID
-    WHERE h.END_TIME > NOW() - INTERVAL '24 HOURS'
-    AND h.CPU_TIME > 0
-    ORDER BY h.CPU_TIME DESC
+        SESSIONID,
+        USERNAME,
+        DBNAME,
+        ROUND(ELAPSED_TIME/1000000, 2) AS ELAPSED_SECONDS,
+        ROUND(CPU_TIME/1000000, 2) AS CPU_SECONDS,
+        ROUND((CPU_TIME * 100.0 / NULLIF(ELAPSED_TIME, 0)), 2) AS CPU_PCT,
+        ROUND(MEMORY_USAGE_BYTES/1024/1024, 2) AS MEMORY_MB,
+        STATUS
+    FROM _V_QRYHIST
+    WHERE END_TIME > NOW() - INTERVAL '24 HOURS'
+    AND CPU_TIME > 0
+    ORDER BY CPU_TIME DESC
     LIMIT ${TOP_QUERIES_LIMIT};" "CPU Intensive Queries (24h)"
     
-    # Lock information
-    print_section "Current Lock Information"
+    # Top queries by memory usage
+    print_section "Top Queries by Memory Usage (Last 24 Hours)"
     execute_sql "
     SELECT 
-        l.SESSIONID,
-        l.USERNAME,
-        l.DBNAME,
-        l.OBJNAME,
-        l.LOCKTYPE,
-        l.LOCKMODE,
-        ROUND(EXTRACT(EPOCH FROM (NOW() - l.GRANTED_TIME))/60, 2) AS LOCK_MINUTES
-    FROM _V_LOCK l
-    WHERE l.GRANTED_TIME IS NOT NULL
-    ORDER BY LOCK_MINUTES DESC;" "Active Locks"
+        SESSIONID,
+        USERNAME,
+        DBNAME,
+        ROUND(ELAPSED_TIME/1000000, 2) AS ELAPSED_SECONDS,
+        ROUND(MEMORY_USAGE_BYTES/1024/1024, 2) AS MEMORY_MB,
+        ROWS_INSERTED + ROWS_UPDATED + ROWS_DELETED + ROWS_RETURNED AS TOTAL_ROWS,
+        STATUS
+    FROM _V_QRYHIST
+    WHERE END_TIME > NOW() - INTERVAL '24 HOURS'
+    AND MEMORY_USAGE_BYTES > 0
+    ORDER BY MEMORY_USAGE_BYTES DESC
+    LIMIT ${TOP_QUERIES_LIMIT};" "Memory Intensive Queries (24h)"
+    
+    # Query statistics summary
+    print_section "Query Performance Summary (Last 24 Hours)"
+    execute_sql "
+    SELECT 
+        COUNT(*) AS TOTAL_QUERIES,
+        ROUND(AVG(ELAPSED_TIME/1000000), 2) AS AVG_ELAPSED_SEC,
+        ROUND(MAX(ELAPSED_TIME/1000000), 2) AS MAX_ELAPSED_SEC,
+        ROUND(AVG(MEMORY_USAGE_BYTES/1024/1024), 2) AS AVG_MEMORY_MB,
+        ROUND(MAX(MEMORY_USAGE_BYTES/1024/1024), 2) AS MAX_MEMORY_MB,
+        COUNT(CASE WHEN STATUS = 'COMPLETED' THEN 1 END) AS COMPLETED_QUERIES,
+        COUNT(CASE WHEN STATUS = 'FAILED' THEN 1 END) AS FAILED_QUERIES
+    FROM _V_QRYHIST
+    WHERE END_TIME > NOW() - INTERVAL '24 HOURS';" "24-Hour Query Statistics"
+    
+    # Failed queries analysis
+    print_section "Recent Failed Queries"
+    execute_sql "
+    SELECT 
+        SESSIONID,
+        USERNAME,
+        DBNAME,
+        START_TIME,
+        END_TIME,
+        ROUND(ELAPSED_TIME/1000000, 2) AS ELAPSED_SECONDS,
+        STATUS,
+        ERROR_CODE,
+        SUBSTR(ERROR_MESSAGE, 1, 100) AS ERROR_MSG
+    FROM _V_QRYHIST
+    WHERE END_TIME > NOW() - INTERVAL '24 HOURS'
+    AND STATUS = 'FAILED'
+    ORDER BY END_TIME DESC
+    LIMIT 10;" "Recent Query Failures"
 }
 
 #=============================================================================
@@ -462,28 +583,45 @@ analyze_session_sql() {
     print_section "Session Information"
     execute_sql "
     SELECT 
-        s.SESSIONID,
-        s.USERNAME,
-        s.DBNAME,
-        s.STATE,
-        s.CLIENT_IP,
-        ROUND(EXTRACT(EPOCH FROM (NOW() - s.LOGON_TIME))/3600, 2) AS SESSION_HOURS,
-        ROUND(EXTRACT(EPOCH FROM (NOW() - COALESCE(s.QUERY_START_TIME, s.LOGON_TIME)))/60, 2) AS QUERY_MINUTES
-    FROM _V_SESSION s
-    WHERE s.SESSIONID = ${session_id};" "Session ${session_id} Details"
+        SESSIONID,
+        USERNAME,
+        DBNAME,
+        STATE,
+        CLIENT_IP,
+        LOGON_TIME,
+        QUERY_START_TIME,
+        PRIORITY,
+        ROUND(EXTRACT(EPOCH FROM (NOW() - LOGON_TIME))/3600, 2) AS SESSION_HOURS,
+        CASE 
+            WHEN QUERY_START_TIME IS NOT NULL THEN 
+                ROUND(EXTRACT(EPOCH FROM (NOW() - QUERY_START_TIME))/60, 2)
+            ELSE NULL 
+        END AS QUERY_MINUTES
+    FROM _V_SESSION
+    WHERE SESSIONID = ${session_id};" "Session ${session_id} Details"
     
-    print_section "Current/Last SQL Statement"
+    print_section "Session Query History"
     execute_sql "
-    SELECT SQL 
-    FROM _V_SQL_TEXT 
-    WHERE SESSIONID = ${session_id};" "SQL Text for Session ${session_id}"
+    SELECT 
+        SESSIONID,
+        START_TIME,
+        END_TIME,
+        ROUND(ELAPSED_TIME/1000000, 2) AS ELAPSED_SECONDS,
+        STATUS,
+        SUBSTR(ERROR_MESSAGE, 1, 100) AS ERROR_MSG
+    FROM _V_QRYHIST
+    WHERE SESSIONID = ${session_id}
+    ORDER BY START_TIME DESC
+    LIMIT 5;" "Recent Query History for Session ${session_id}"
     
-    # Generate explain plan
+    print_warning "Note: _V_SQL_TEXT is not available in your Netezza version."
+    print_warning "SQL text analysis requires manual entry or query from application logs."
+    
     echo ""
-    read -p "Generate explain plan for this SQL? (y/n): " generate_plan
+    read -p "Do you want to enter SQL manually for analysis? (y/n): " manual_sql
     
-    if [[ "$generate_plan" =~ ^[Yy] ]]; then
-        generate_explain_plan_for_session "$session_id"
+    if [[ "$manual_sql" =~ ^[Yy] ]]; then
+        analyze_custom_sql
     fi
 }
 
@@ -491,27 +629,57 @@ analyze_historical_sql() {
     print_section "Recent Query History"
     execute_sql "
     SELECT 
-        h.SESSIONID,
-        h.USERNAME,
-        h.DBNAME,
-        ROUND(h.ELAPSED_TIME/1000000, 2) AS ELAPSED_SECONDS,
-        h.MEMORY_USAGE_BYTES/1024/1024 AS MEMORY_MB,
-        SUBSTR(t.SQL, 1, 80) AS SQL_PREVIEW
-    FROM _V_QRYHIST h
-    JOIN _V_SQL_TEXT t ON h.SESSIONID = t.SESSIONID
-    WHERE h.END_TIME > NOW() - INTERVAL '24 HOURS'
-    ORDER BY h.END_TIME DESC
+        SESSIONID,
+        USERNAME,
+        DBNAME,
+        START_TIME,
+        END_TIME,
+        ROUND(ELAPSED_TIME/1000000, 2) AS ELAPSED_SECONDS,
+        ROUND(MEMORY_USAGE_BYTES/1024/1024, 2) AS MEMORY_MB,
+        STATUS
+    FROM _V_QRYHIST
+    WHERE END_TIME > NOW() - INTERVAL '24 HOURS'
+    ORDER BY END_TIME DESC
     LIMIT 20;" "Recent Query History"
     
     echo ""
-    read -p "Enter Session ID to analyze: " session_id
+    echo "Note: SQL text is not available from system views in your Netezza version."
+    echo "For detailed SQL analysis, you'll need to:"
+    echo "1. Check application logs"
+    echo "2. Use query monitoring tools"
+    echo "3. Enter SQL manually for analysis"
+    echo ""
+    
+    read -p "Enter Session ID for performance details: " session_id
     
     if [[ ! "$session_id" =~ ^[0-9]+$ ]]; then
         print_error "Invalid session ID"
         return
     fi
     
-    generate_explain_plan_for_session "$session_id"
+    print_section "Detailed Performance for Session $session_id"
+    execute_sql "
+    SELECT 
+        SESSIONID,
+        USERNAME,
+        DBNAME,
+        START_TIME,
+        END_TIME,
+        ROUND(ELAPSED_TIME/1000000, 2) AS ELAPSED_SECONDS,
+        ROUND(COMPILE_TIME/1000000, 2) AS COMPILE_SECONDS,
+        ROUND(QUEUE_TIME/1000000, 2) AS QUEUE_SECONDS,
+        ROUND(CPU_TIME/1000000, 2) AS CPU_SECONDS,
+        ROUND(MEMORY_USAGE_BYTES/1024/1024, 2) AS MEMORY_MB,
+        ROWS_INSERTED,
+        ROWS_UPDATED,
+        ROWS_DELETED,
+        ROWS_RETURNED,
+        STATUS,
+        ERROR_CODE,
+        SUBSTR(ERROR_MESSAGE, 1, 200) AS ERROR_MESSAGE
+    FROM _V_QRYHIST
+    WHERE SESSIONID = ${session_id}
+    ORDER BY START_TIME DESC;" "Performance Details for Session ${session_id}"
 }
 
 analyze_custom_sql() {
@@ -547,22 +715,30 @@ analyze_custom_sql() {
 generate_explain_plan_for_session() {
     local session_id="$1"
     
-    # Get the SQL for this session
-    sql_text=$($NZSQL_CMD -t -c "SELECT SQL FROM _V_SQL_TEXT WHERE SESSIONID = ${session_id};" 2>/dev/null | head -1)
+    print_warning "SQL text retrieval not available from system views."
+    print_warning "To generate explain plan, you need to provide the SQL statement manually."
     
-    if [[ -z "$sql_text" || "$sql_text" == *"0 rows"* ]]; then
-        print_error "No SQL found for session $session_id"
-        return
-    fi
-    
-    print_section "Detailed Explain Plan"
-    echo "SQL: $sql_text"
     echo ""
+    read -p "Do you want to enter the SQL statement manually? (y/n): " manual_entry
     
-    # Generate explain plan
-    $NZSQL_CMD -c "EXPLAIN VERBOSE $sql_text" 2>/dev/null
-    
-    analyze_sql_for_issues "$sql_text"
+    if [[ "$manual_entry" =~ ^[Yy] ]]; then
+        analyze_custom_sql
+    else
+        print_section "Performance Summary for Session $session_id"
+        execute_sql "
+        SELECT 
+            'Performance summary without SQL text' AS NOTE,
+            SESSIONID,
+            USERNAME,
+            DBNAME,
+            ROUND(ELAPSED_TIME/1000000, 2) AS ELAPSED_SECONDS,
+            ROUND(MEMORY_USAGE_BYTES/1024/1024, 2) AS MEMORY_MB,
+            STATUS
+        FROM _V_QRYHIST
+        WHERE SESSIONID = ${session_id}
+        ORDER BY START_TIME DESC
+        LIMIT 1;" "Session Performance Summary"
+    fi
 }
 
 analyze_sql_for_issues() {
