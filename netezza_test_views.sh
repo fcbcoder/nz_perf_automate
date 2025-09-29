@@ -98,6 +98,54 @@ $NZSQL_CMD -c "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME
 echo "Could not retrieve system view list"
 
 echo ""
+echo -e "${BLUE}Column Structure Analysis:${NC}"
+
+# Check column structures for key views
+check_columns() {
+    local view_name="$1"
+    local test_columns="$2"
+    
+    echo ""
+    echo -e "${YELLOW}Checking columns in $view_name:${NC}"
+    
+    # Get column structure
+    echo "All columns:"
+    $NZSQL_CMD -c "SELECT * FROM $view_name LIMIT 0;" 2>/dev/null | head -3
+    
+    echo ""
+    echo "Testing specific columns:"
+    for column in $test_columns; do
+        echo -n "  $column: "
+        if $NZSQL_CMD -c "SELECT $column FROM $view_name LIMIT 1;" &>/dev/null; then
+            echo -e "${GREEN}✓${NC}"
+        else
+            echo -e "${RED}✗${NC}"
+        fi
+    done
+}
+
+# Check key views and their columns
+for view in "${AVAILABLE_VIEWS[@]}"; do
+    case $view in
+        "_V_SESSION"|"V_SESSION")
+            check_columns "$view" "SESSIONID USERNAME DBNAME STATE CLIENT_IP LOGON_TIME QUERY_START_TIME PRIORITY"
+            ;;
+        "_V_DATABASE"|"V_DATABASE")
+            check_columns "$view" "DATABASE OWNER CREATEDATE USED_BYTES SKEW"
+            ;;
+        "_V_DISK"|"V_DISK")
+            check_columns "$view" "HOST FILESYSTEM TOTAL_BYTES USED_BYTES FREE_BYTES READS_PER_SEC WRITES_PER_SEC UTILIZATION_PCT"
+            ;;
+        "_V_QRYHIST"|"V_QRYHIST")
+            check_columns "$view" "SESSIONID USERNAME DBNAME START_TIME END_TIME ELAPSED_TIME CPU_TIME MEMORY_USAGE_BYTES STATUS ERROR_CODE ERROR_MESSAGE"
+            ;;
+        "_V_CPU"|"V_CPU")
+            check_columns "$view" "HOST CPU_NUMBER CPU_TYPE CPU_SPEED_MHZ CPU_UTILIZATION_PCT"
+            ;;
+    esac
+done
+
+echo ""
 echo -e "${BLUE}Sample data from available views:${NC}"
 
 # Show sample data from key available views
@@ -113,10 +161,10 @@ for view in "${AVAILABLE_VIEWS[@]}"; do
             echo -e "${YELLOW}Sample from $view:${NC}"
             $NZSQL_CMD -c "SELECT DATABASE, OWNER FROM $view LIMIT 5;" 2>/dev/null
             ;;
-        "_V_SYSTEM_STATE"|"V_SYSTEM_STATE")
+        "_V_QRYHIST"|"V_QRYHIST")
             echo ""
             echo -e "${YELLOW}Sample from $view:${NC}"
-            $NZSQL_CMD -c "SELECT * FROM $view LIMIT 3;" 2>/dev/null
+            $NZSQL_CMD -c "SELECT SESSIONID, USERNAME, STATUS FROM $view LIMIT 5;" 2>/dev/null
             ;;
     esac
 done

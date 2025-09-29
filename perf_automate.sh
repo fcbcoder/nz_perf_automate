@@ -131,23 +131,106 @@ discover_system_views() {
     local common_views=(
         "_V_SESSION" "_V_SYSTEM_STATE" "_V_DATABASE" "_V_DISK" "_V_HOST"
         "_V_QRYHIST" "_V_SQL_TEXT" "_V_LOCK" "_V_SYSTEM_CONFIG"
+        "_V_CPU" "_V_SCSI_ERRORS" "_V_DISKENCLOSURE" "_V_SPA" "_V_CONNECTION"
+        "_V_BACKUP_HISTORY" "_V_AUTHENTICATION_SETTINGS" "_V_SCHEMA"
         "V_SESSION" "V_SYSTEM_STATE" "V_DATABASE" "V_DISK" "V_HOST"
         "_T_SESSION" "_T_SYSTEM_STATE" "_T_DATABASE" "_T_DISK" "_T_HOST"
     )
+    
+    local available_views=()
+    local unavailable_views=()
     
     for view in "${common_views[@]}"; do
         echo -n "Testing $view... "
         if execute_sql "SELECT COUNT(*) FROM $view LIMIT 1;" "Test $view" false; then
             echo -e "${GREEN}✓ Available${NC}"
+            available_views+=("$view")
         else
             echo -e "${RED}✗ Not available${NC}"
+            unavailable_views+=("$view")
         fi
     done
+    
+    # Now check column structures for available views
+    print_section "Column Structure Analysis for Available Views"
+    
+    for view in "${available_views[@]}"; do
+        print_section "Columns in $view"
+        
+        # Try different methods to get column information
+        if execute_sql "
+        SELECT ATTNAME, ATTTYPMOD 
+        FROM _V_ATTRIBUTE 
+        WHERE OBJNAME = '$view' 
+        ORDER BY ATTNAME;" "Columns in $view (Method 1)" false; then
+            continue
+        elif execute_sql "
+        SELECT COLUMN_NAME, DATA_TYPE 
+        FROM INFORMATION_SCHEMA.COLUMNS 
+        WHERE TABLE_NAME = '$view' 
+        ORDER BY COLUMN_NAME;" "Columns in $view (Method 2)" false; then
+            continue
+        else
+            # Fallback: try to select * with limit 0 to see column names
+            echo "Attempting to get column structure for $view..."
+            $NZSQL_CMD -c "SELECT * FROM $view LIMIT 0;" 2>/dev/null | head -5
+        fi
+    done
+    
+    # Specific column checks for key views
+    print_section "Key Column Availability Check"
+    
+    check_view_columns "_V_DATABASE" "DATABASE OWNER CREATEDATE USED_BYTES SKEW"
+    check_view_columns "_V_DISK" "HOST FILESYSTEM TOTAL_BYTES USED_BYTES FREE_BYTES READS_PER_SEC WRITES_PER_SEC"
+    check_view_columns "_V_SESSION" "SESSIONID USERNAME DBNAME STATE CLIENT_IP LOGON_TIME QUERY_START_TIME PRIORITY"
+    check_view_columns "_V_QRYHIST" "SESSIONID USERNAME DBNAME START_TIME END_TIME ELAPSED_TIME CPU_TIME MEMORY_USAGE_BYTES STATUS ERROR_CODE ERROR_MESSAGE"
+    check_view_columns "_V_CPU" "HOST CPU_NUMBER CPU_TYPE CPU_SPEED_MHZ CPU_UTILIZATION_PCT"
     
     print_section "System Catalog Information"
     # Try different ways to get system catalog info
     execute_sql "SELECT VERSION();" "Database Version" true
     execute_sql "SELECT CURRENT_USER, CURRENT_DATABASE, CURRENT_TIMESTAMP;" "Current Connection Info" true
+}
+
+check_view_columns() {
+    local view_name="$1"
+    local expected_columns="$2"
+    
+    echo ""
+    echo -e "${YELLOW}Checking columns in $view_name...${NC}"
+    
+    # Check if view exists first
+    if ! execute_sql "SELECT COUNT(*) FROM $view_name LIMIT 1;" "Test $view_name existence" false; then
+        echo -e "${RED}✗ View $view_name not available${NC}"
+        return
+    fi
+    
+    echo -e "${GREEN}✓ View $view_name is available${NC}"
+    
+    # Get actual column structure
+    echo "Actual columns in $view_name:"
+    if execute_sql "
+    SELECT ATTNAME 
+    FROM _V_ATTRIBUTE 
+    WHERE OBJNAME = '$view_name' 
+    ORDER BY ATTNAME;" "Get columns for $view_name" false; then
+        echo ""
+    else
+        # Fallback method
+        echo "Using fallback method to check columns..."
+        $NZSQL_CMD -c "SELECT * FROM $view_name LIMIT 0;" 2>/dev/null
+    fi
+    
+    # Check specific expected columns
+    echo -e "${CYAN}Checking expected columns:${NC}"
+    for column in $expected_columns; do
+        echo -n "  Testing column $column... "
+        if execute_sql "SELECT $column FROM $view_name LIMIT 1;" "Test column $column" false; then
+            echo -e "${GREEN}✓ Available${NC}"
+        else
+            echo -e "${RED}✗ Not available${NC}"
+        fi
+    done
 }
 
 check_nzsql_availability() {
@@ -172,6 +255,72 @@ check_nzsql_availability() {
     return 0
 }
 
+# Function to check if a column exists in a view
+column_exists() {
+    local view_name="$1"
+    local column_name="$2"
+    
+    execute_sql "SELECT $column_name FROM $view_name LIMIT 1;" "Test column $column_name in $view_name" false
+    return $?
+}
+
+# Function to build safe SQL with available columns
+build_safe_sql() {
+    local view_name="$1"
+    local base_columns="$2"
+    local optional_columns="$3"
+    
+    local safe_columns=""
+    local available_columns=""
+    
+    # Check base columns (required)
+    for column in $base_columns; do
+        if column_exists "$view_name" "$column"; then
+            if [[ -n "$available_columns" ]]; then
+                available_columns="$available_columns, $column"
+            else
+                available_columns="$column"
+            fi
+        else
+            print_warning "Required column $column not found in $view_name"
+        fi
+    done
+    
+    # Check optional columns
+    for column in $optional_columns; do
+        if column_exists "$view_name" "$column"; then
+            if [[ -n "$available_columns" ]]; then
+                available_columns="$available_columns, $column"
+            else
+                available_columns="$column"
+            fi
+        fi
+    done
+    
+    echo "$available_columns"
+}
+
+# Function to execute SQL with column validation
+execute_safe_sql() {
+    local view_name="$1"
+    local sql_template="$2"
+    local description="$3"
+    local show_errors="${4:-false}"
+    
+    # Simple column existence check by trying the query first
+    if execute_sql "$sql_template" "$description" "$show_errors"; then
+        return 0
+    else
+        print_warning "Query failed for $view_name - possibly due to missing columns"
+        print_warning "Attempting with basic columns only..."
+        
+        # Try a basic fallback query
+        local basic_sql="SELECT * FROM $view_name LIMIT 5"
+        execute_sql "$basic_sql" "$description (Basic Fallback)" "$show_errors"
+        return $?
+    fi
+}
+
 #=============================================================================
 # System State Checks
 #=============================================================================
@@ -184,78 +333,104 @@ check_netezza_system_state() {
     execute_sql "SELECT VERSION();" "Database Version" true
     execute_sql "SELECT CURRENT_USER, CURRENT_DATABASE, CURRENT_TIMESTAMP;" "Current Connection" true
     
-    # Database information (available in your environment)
+    # Database information with safe column checking
     print_section "Database Information"
-    execute_sql "
-    SELECT 
-        DATABASE,
-        OWNER,
-        CREATEDATE,
-        ROUND(USED_BYTES/1024/1024/1024, 2) AS USED_GB,
-        ROUND(SKEW/100.0, 2) AS SKEW_PCT
-    FROM _V_DATABASE 
-    ORDER BY USED_BYTES DESC;" "Database Sizes and Usage"
+    if column_exists "_V_DATABASE" "DATABASE" && column_exists "_V_DATABASE" "OWNER"; then
+        local db_sql="SELECT DATABASE, OWNER"
+        
+        if column_exists "_V_DATABASE" "CREATEDATE"; then
+            db_sql="$db_sql, CREATEDATE"
+        fi
+        
+        if column_exists "_V_DATABASE" "USED_BYTES"; then
+            db_sql="$db_sql, ROUND(USED_BYTES/1024/1024/1024, 2) AS USED_GB"
+        fi
+        
+        if column_exists "_V_DATABASE" "SKEW"; then
+            db_sql="$db_sql, ROUND(SKEW/100.0, 2) AS SKEW_PCT"
+        fi
+        
+        db_sql="$db_sql FROM _V_DATABASE ORDER BY DATABASE"
+        execute_sql "$db_sql" "Database Information"
+    else
+        execute_safe_sql "_V_DATABASE" "SELECT * FROM _V_DATABASE LIMIT 10" "Database Information (Basic)"
+    fi
     
-    # Disk usage (available in your environment)
-    print_section "Disk Usage by Host"
-    execute_sql "
-    SELECT 
-        HOST,
-        FILESYSTEM,
-        ROUND(TOTAL_BYTES/1024/1024/1024, 2) AS TOTAL_GB,
-        ROUND(USED_BYTES/1024/1024/1024, 2) AS USED_GB,
-        ROUND(FREE_BYTES/1024/1024/1024, 2) AS FREE_GB,
-        ROUND((USED_BYTES*100.0/TOTAL_BYTES), 2) AS USED_PCT
-    FROM _V_DISK
-    ORDER BY USED_PCT DESC;" "Disk Usage Analysis"
-    
-    # Additional disk information
-    execute_sql "
-    SELECT 
-        HOST,
-        COUNT(*) AS DISK_COUNT,
-        ROUND(SUM(TOTAL_BYTES)/1024/1024/1024, 2) AS TOTAL_GB_ALL,
-        ROUND(SUM(USED_BYTES)/1024/1024/1024, 2) AS USED_GB_ALL,
-        ROUND(AVG((USED_BYTES*100.0/TOTAL_BYTES)), 2) AS AVG_USED_PCT
-    FROM _V_DISK
-    GROUP BY HOST
-    ORDER BY HOST;" "Disk Summary by Host"
+    # Disk usage with safe column checking
+    print_section "Disk Usage Information"
+    if column_exists "_V_DISK" "HOST"; then
+        local disk_sql="SELECT HOST"
+        
+        if column_exists "_V_DISK" "FILESYSTEM"; then
+            disk_sql="$disk_sql, FILESYSTEM"
+        fi
+        
+        if column_exists "_V_DISK" "TOTAL_BYTES"; then
+            disk_sql="$disk_sql, ROUND(TOTAL_BYTES/1024/1024/1024, 2) AS TOTAL_GB"
+        fi
+        
+        if column_exists "_V_DISK" "USED_BYTES"; then
+            disk_sql="$disk_sql, ROUND(USED_BYTES/1024/1024/1024, 2) AS USED_GB"
+        fi
+        
+        if column_exists "_V_DISK" "FREE_BYTES"; then
+            disk_sql="$disk_sql, ROUND(FREE_BYTES/1024/1024/1024, 2) AS FREE_GB"
+        fi
+        
+        if column_exists "_V_DISK" "USED_BYTES" && column_exists "_V_DISK" "TOTAL_BYTES"; then
+            disk_sql="$disk_sql, ROUND((USED_BYTES*100.0/TOTAL_BYTES), 2) AS USED_PCT"
+        fi
+        
+        disk_sql="$disk_sql FROM _V_DISK ORDER BY HOST"
+        execute_sql "$disk_sql" "Disk Usage Analysis"
+        
+        # Summary by host if possible
+        if column_exists "_V_DISK" "HOST" && column_exists "_V_DISK" "TOTAL_BYTES"; then
+            execute_sql "
+            SELECT 
+                HOST,
+                COUNT(*) AS DISK_COUNT,
+                ROUND(SUM(TOTAL_BYTES)/1024/1024/1024, 2) AS TOTAL_GB_ALL,
+                ROUND(SUM(USED_BYTES)/1024/1024/1024, 2) AS USED_GB_ALL
+            FROM _V_DISK
+            GROUP BY HOST
+            ORDER BY HOST;" "Disk Summary by Host"
+        fi
+    else
+        execute_safe_sql "_V_DISK" "SELECT * FROM _V_DISK LIMIT 10" "Disk Information (Basic)"
+    fi
     
     # Backup information (if available)
     print_section "Recent Backup History"
-    execute_sql "
+    execute_safe_sql "_V_BACKUP_HISTORY" "
     SELECT 
         DATABASE,
-        BACKUP_TYPE,
         START_TIME,
         END_TIME,
-        STATUS,
-        ROUND(EXTRACT(EPOCH FROM (END_TIME - START_TIME))/60, 2) AS DURATION_MINUTES
+        STATUS
     FROM _V_BACKUP_HISTORY 
     WHERE START_TIME > NOW() - INTERVAL '7 DAYS'
     ORDER BY START_TIME DESC
-    LIMIT 10;" "Recent Backup Activity"
+    LIMIT 10" "Recent Backup Activity"
     
-    # Security and authentication settings
+    # Authentication settings (if available)
     print_section "Authentication Settings"
-    execute_sql "
+    execute_safe_sql "_V_AUTHENTICATION_SETTINGS" "
     SELECT 
         NAME,
-        VALUE,
-        DESCRIPTION
+        VALUE
     FROM _V_AUTHENTICATION_SETTINGS
-    ORDER BY NAME;" "Authentication Configuration"
+    ORDER BY NAME" "Authentication Configuration"
     
-    # Schema information
+    # Schema information (if available)
     print_section "Schema Summary"
-    execute_sql "
+    execute_safe_sql "_V_SCHEMA" "
     SELECT 
         SCHEMA,
-        OWNER,
-        CREATEDATE
+        OWNER
     FROM _V_SCHEMA
     WHERE SCHEMA NOT LIKE 'TEMP_%'
-    ORDER BY SCHEMA;" "Database Schemas"
+    ORDER BY SCHEMA" "Database Schemas"
 }
 
 #=============================================================================
@@ -266,84 +441,121 @@ check_os_performance() {
     print_header "LINUX OS PERFORMANCE MONITORING"
     
     print_section "CPU Performance Information"
-    # CPU information (available in your environment)
-    execute_sql "
-    SELECT 
-        HOST,
-        CPU_NUMBER,
-        CPU_TYPE,
-        CPU_SPEED_MHZ,
-        CPU_UTILIZATION_PCT
-    FROM _V_CPU
-    ORDER BY HOST, CPU_NUMBER;" "CPU Details by Host"
+    # CPU information with safe column checking
+    if column_exists "_V_CPU" "HOST"; then
+        local cpu_sql="SELECT HOST"
+        
+        if column_exists "_V_CPU" "CPU_NUMBER"; then
+            cpu_sql="$cpu_sql, CPU_NUMBER"
+        fi
+        
+        if column_exists "_V_CPU" "CPU_TYPE"; then
+            cpu_sql="$cpu_sql, CPU_TYPE"
+        fi
+        
+        if column_exists "_V_CPU" "CPU_SPEED_MHZ"; then
+            cpu_sql="$cpu_sql, CPU_SPEED_MHZ"
+        fi
+        
+        if column_exists "_V_CPU" "CPU_UTILIZATION_PCT"; then
+            cpu_sql="$cpu_sql, CPU_UTILIZATION_PCT"
+        fi
+        
+        cpu_sql="$cpu_sql FROM _V_CPU ORDER BY HOST"
+        execute_sql "$cpu_sql" "CPU Details by Host"
+    else
+        execute_safe_sql "_V_CPU" "SELECT * FROM _V_CPU LIMIT 10" "CPU Information (Basic)"
+    fi
     
     print_section "Disk Performance Monitoring"
-    # Disk performance and error monitoring
-    execute_sql "
-    SELECT 
-        HOST,
-        FILESYSTEM,
-        READS_PER_SEC,
-        WRITES_PER_SEC,
-        ROUND(READ_KB_PER_SEC, 2) AS READ_KB_SEC,
-        ROUND(WRITE_KB_PER_SEC, 2) AS WRITE_KB_SEC,
-        ROUND(UTILIZATION_PCT, 2) AS UTIL_PCT
-    FROM _V_DISK
-    WHERE READS_PER_SEC > 0 OR WRITES_PER_SEC > 0
-    ORDER BY UTIL_PCT DESC;" "Disk I/O Performance"
+    # Check what disk performance columns are available
+    if column_exists "_V_DISK" "HOST"; then
+        local disk_perf_sql="SELECT HOST"
+        
+        if column_exists "_V_DISK" "FILESYSTEM"; then
+            disk_perf_sql="$disk_perf_sql, FILESYSTEM"
+        fi
+        
+        local has_io_cols=false
+        if column_exists "_V_DISK" "READS_PER_SEC"; then
+            disk_perf_sql="$disk_perf_sql, READS_PER_SEC"
+            has_io_cols=true
+        fi
+        
+        if column_exists "_V_DISK" "WRITES_PER_SEC"; then
+            disk_perf_sql="$disk_perf_sql, WRITES_PER_SEC"
+            has_io_cols=true
+        fi
+        
+        if column_exists "_V_DISK" "READ_KB_PER_SEC"; then
+            disk_perf_sql="$disk_perf_sql, ROUND(READ_KB_PER_SEC, 2) AS READ_KB_SEC"
+        fi
+        
+        if column_exists "_V_DISK" "WRITE_KB_PER_SEC"; then
+            disk_perf_sql="$disk_perf_sql, ROUND(WRITE_KB_PER_SEC, 2) AS WRITE_KB_SEC"
+        fi
+        
+        if column_exists "_V_DISK" "UTILIZATION_PCT"; then
+            disk_perf_sql="$disk_perf_sql, ROUND(UTILIZATION_PCT, 2) AS UTIL_PCT"
+        fi
+        
+        disk_perf_sql="$disk_perf_sql FROM _V_DISK"
+        
+        if $has_io_cols; then
+            disk_perf_sql="$disk_perf_sql WHERE (READS_PER_SEC > 0 OR WRITES_PER_SEC > 0)"
+        fi
+        
+        disk_perf_sql="$disk_perf_sql ORDER BY HOST LIMIT 20"
+        execute_sql "$disk_perf_sql" "Disk I/O Performance"
+    else
+        print_warning "Disk performance monitoring not available"
+    fi
     
-    print_section "SCSI Error Monitoring"
-    # SCSI errors (hardware issues)
-    execute_sql "
+    print_section "Hardware Error Monitoring"
+    # SCSI errors (if available)
+    execute_safe_sql "_V_SCSI_ERRORS" "
     SELECT 
         HOST,
         DEVICE,
-        ERROR_TYPE,
-        ERROR_COUNT,
-        LAST_ERROR_TIME
+        ERROR_COUNT
     FROM _V_SCSI_ERRORS
     WHERE ERROR_COUNT > 0
-    ORDER BY ERROR_COUNT DESC;" "SCSI Hardware Errors"
+    ORDER BY ERROR_COUNT DESC
+    LIMIT 10" "SCSI Hardware Errors"
     
-    print_section "System Disk Enclosure Status"
-    # Disk enclosure information
-    execute_sql "
+    print_section "System Hardware Status"
+    # Disk enclosure information (if available)
+    execute_safe_sql "_V_DISKENCLOSURE" "
     SELECT 
         HOST,
         ENCLOSURE_ID,
-        ENCLOSURE_TYPE,
-        STATUS,
-        TEMPERATURE_C,
-        FAN_SPEED_RPM
+        STATUS
     FROM _V_DISKENCLOSURE
-    ORDER BY HOST, ENCLOSURE_ID;" "Disk Enclosure Health"
+    ORDER BY HOST, ENCLOSURE_ID
+    LIMIT 20" "Disk Enclosure Health"
     
-    print_section "SPA (System Performance Analysis)"
-    # System performance analysis data
-    execute_sql "
+    print_section "System Performance Analysis"
+    # SPA data (if available)
+    execute_safe_sql "_V_SPA" "
     SELECT 
         HOST,
         TIMESTAMP,
         METRIC_NAME,
-        METRIC_VALUE,
-        UNITS
+        METRIC_VALUE
     FROM _V_SPA
     WHERE TIMESTAMP > NOW() - INTERVAL '1 HOUR'
-    AND METRIC_NAME IN ('CPU_USAGE', 'MEMORY_USAGE', 'DISK_USAGE', 'NETWORK_USAGE')
     ORDER BY TIMESTAMP DESC, HOST
-    LIMIT 20;" "Recent System Performance Metrics"
+    LIMIT 20" "Recent System Performance Metrics"
     
     print_section "Connection Information"
-    # Active connections
-    execute_sql "
+    # Active connections (if available)
+    execute_safe_sql "_V_CONNECTION" "
     SELECT 
         HOST,
-        CONNECTION_TYPE,
-        COUNT(*) AS CONNECTION_COUNT,
-        MAX(CONNECT_TIME) AS LATEST_CONNECTION
+        COUNT(*) AS CONNECTION_COUNT
     FROM _V_CONNECTION
-    GROUP BY HOST, CONNECTION_TYPE
-    ORDER BY CONNECTION_COUNT DESC;" "System Connections Summary"
+    GROUP BY HOST
+    ORDER BY CONNECTION_COUNT DESC" "System Connections Summary"
 }
 
 #=============================================================================
@@ -353,187 +565,236 @@ check_os_performance() {
 check_active_sessions() {
     print_header "ACTIVE SESSIONS AND SQL ANALYSIS"
     
-    # Current active sessions (using available _V_SESSION)
-    print_section "All Active Sessions"
-    execute_sql "
-    SELECT 
-        SESSIONID,
-        USERNAME,
-        DBNAME,
-        CLIENT_IP,
-        CLIENT_PID,
-        STATE,
-        PRIORITY,
-        ROUND(EXTRACT(EPOCH FROM (NOW() - LOGON_TIME))/3600, 2) AS SESSION_HOURS,
-        CASE 
-            WHEN QUERY_START_TIME IS NOT NULL THEN 
-                ROUND(EXTRACT(EPOCH FROM (NOW() - QUERY_START_TIME))/60, 2)
-            ELSE NULL 
-        END AS QUERY_MINUTES
-    FROM _V_SESSION
-    WHERE STATE != 'idle'
-    ORDER BY SESSION_HOURS DESC;" "Active Sessions Overview"
+    # Build safe session query based on available columns
+    print_section "Active Sessions Analysis"
     
-    # Long running sessions
-    print_section "Long Running Sessions (> ${LONG_RUNNING_QUERY_HOURS} hours)"
-    execute_sql "
-    SELECT 
-        SESSIONID,
-        USERNAME,
-        DBNAME,
-        STATE,
-        CLIENT_IP,
-        ROUND(EXTRACT(EPOCH FROM (NOW() - LOGON_TIME))/3600, 2) AS SESSION_HOURS,
-        CASE 
-            WHEN QUERY_START_TIME IS NOT NULL THEN 
-                ROUND(EXTRACT(EPOCH FROM (NOW() - QUERY_START_TIME))/60, 2)
-            ELSE NULL 
-        END AS QUERY_MINUTES,
-        PRIORITY
-    FROM _V_SESSION
-    WHERE EXTRACT(EPOCH FROM (NOW() - LOGON_TIME))/3600 > ${LONG_RUNNING_QUERY_HOURS}
-    ORDER BY SESSION_HOURS DESC
-    LIMIT ${TOP_SESSIONS_LIMIT};" "Long Running Sessions"
-    
-    # Session state summary
-    print_section "Session State Summary"
-    execute_sql "
-    SELECT 
-        STATE,
-        COUNT(*) AS SESSION_COUNT,
-        ROUND(AVG(EXTRACT(EPOCH FROM (NOW() - LOGON_TIME))/3600), 2) AS AVG_SESSION_HOURS,
-        MIN(USERNAME) AS EXAMPLE_USER
-    FROM _V_SESSION
-    GROUP BY STATE
-    ORDER BY SESSION_COUNT DESC;" "Session States"
-    
-    # Session details by user
-    print_section "Sessions by User"
-    execute_sql "
-    SELECT 
-        USERNAME,
-        COUNT(*) AS SESSION_COUNT,
-        COUNT(CASE WHEN STATE = 'active' THEN 1 END) AS ACTIVE_SESSIONS,
-        COUNT(CASE WHEN STATE = 'idle' THEN 1 END) AS IDLE_SESSIONS,
-        ROUND(AVG(EXTRACT(EPOCH FROM (NOW() - LOGON_TIME))/3600), 2) AS AVG_SESSION_HOURS
-    FROM _V_SESSION
-    GROUP BY USERNAME
-    HAVING COUNT(*) > 1
-    ORDER BY SESSION_COUNT DESC;" "User Session Summary"
-    
-    # Detailed session information
-    print_section "Detailed Session Information"
-    execute_sql "
-    SELECT 
-        SESSIONID,
-        USERNAME,
-        DBNAME,
-        STATE,
-        CLIENT_IP,
-        LOGON_TIME,
-        QUERY_START_TIME,
-        PRIORITY,
-        CASE 
-            WHEN STATE = 'active' AND QUERY_START_TIME IS NOT NULL THEN 'Currently executing query'
-            WHEN STATE = 'idle' THEN 'Session idle'
-            ELSE STATE
-        END AS STATUS_DESCRIPTION
-    FROM _V_SESSION
-    WHERE STATE IN ('active', 'queued', 'paused')
-    ORDER BY LOGON_TIME DESC;" "Active Session Details"
+    if column_exists "_V_SESSION" "SESSIONID" && column_exists "_V_SESSION" "USERNAME"; then
+        local session_sql="SELECT SESSIONID, USERNAME"
+        
+        if column_exists "_V_SESSION" "DBNAME"; then
+            session_sql="$session_sql, DBNAME"
+        fi
+        
+        if column_exists "_V_SESSION" "STATE"; then
+            session_sql="$session_sql, STATE"
+        fi
+        
+        if column_exists "_V_SESSION" "CLIENT_IP"; then
+            session_sql="$session_sql, CLIENT_IP"
+        fi
+        
+        if column_exists "_V_SESSION" "LOGON_TIME"; then
+            session_sql="$session_sql, LOGON_TIME"
+            session_sql="$session_sql, ROUND(EXTRACT(EPOCH FROM (NOW() - LOGON_TIME))/3600, 2) AS SESSION_HOURS"
+        fi
+        
+        if column_exists "_V_SESSION" "QUERY_START_TIME"; then
+            session_sql="$session_sql, QUERY_START_TIME"
+        fi
+        
+        if column_exists "_V_SESSION" "PRIORITY"; then
+            session_sql="$session_sql, PRIORITY"
+        fi
+        
+        session_sql="$session_sql FROM _V_SESSION"
+        
+        # Add WHERE clause if STATE column exists
+        if column_exists "_V_SESSION" "STATE"; then
+            session_sql="$session_sql WHERE STATE != 'idle'"
+        fi
+        
+        session_sql="$session_sql ORDER BY SESSIONID LIMIT 20"
+        execute_sql "$session_sql" "Active Sessions Overview"
+        
+        # Long running sessions if LOGON_TIME exists
+        if column_exists "_V_SESSION" "LOGON_TIME"; then
+            print_section "Long Running Sessions (> ${LONG_RUNNING_QUERY_HOURS} hours)"
+            local long_session_sql="$session_sql"
+            long_session_sql="${long_session_sql% ORDER BY*}" # Remove existing ORDER BY
+            long_session_sql="$long_session_sql AND EXTRACT(EPOCH FROM (NOW() - LOGON_TIME))/3600 > ${LONG_RUNNING_QUERY_HOURS}"
+            long_session_sql="$long_session_sql ORDER BY LOGON_TIME ASC LIMIT ${TOP_SESSIONS_LIMIT}"
+            execute_sql "$long_session_sql" "Long Running Sessions"
+        fi
+        
+        # Session state summary if STATE column exists
+        if column_exists "_V_SESSION" "STATE"; then
+            print_section "Session State Summary"
+            execute_sql "
+            SELECT 
+                STATE,
+                COUNT(*) AS SESSION_COUNT
+            FROM _V_SESSION
+            GROUP BY STATE
+            ORDER BY SESSION_COUNT DESC;" "Session States"
+        fi
+        
+        # Sessions by user
+        print_section "Sessions by User"
+        local user_sql="
+        SELECT 
+            USERNAME,
+            COUNT(*) AS SESSION_COUNT"
+            
+        if column_exists "_V_SESSION" "STATE"; then
+            user_sql="$user_sql,
+            COUNT(CASE WHEN STATE = 'active' THEN 1 END) AS ACTIVE_SESSIONS,
+            COUNT(CASE WHEN STATE = 'idle' THEN 1 END) AS IDLE_SESSIONS"
+        fi
+        
+        user_sql="$user_sql
+        FROM _V_SESSION
+        GROUP BY USERNAME
+        HAVING COUNT(*) > 1
+        ORDER BY SESSION_COUNT DESC"
+        
+        execute_sql "$user_sql" "User Session Summary"
+        
+    else
+        execute_safe_sql "_V_SESSION" "SELECT * FROM _V_SESSION LIMIT 10" "Session Information (Basic)"
+    fi
 }
 
 check_query_performance() {
     print_header "QUERY PERFORMANCE ANALYSIS"
     
-    # Query history analysis (using available _V_QRYHIST)
-    print_section "Top Queries by Elapsed Time (Last 24 Hours)"
-    execute_sql "
-    SELECT 
-        SESSIONID,
-        USERNAME,
-        DBNAME,
-        START_TIME,
-        END_TIME,
-        ROUND(ELAPSED_TIME/1000000, 2) AS ELAPSED_SECONDS,
-        ROUND(COMPILE_TIME/1000000, 2) AS COMPILE_SECONDS,
-        ROUND(QUEUE_TIME/1000000, 2) AS QUEUE_SECONDS,
-        ROWS_INSERTED + ROWS_UPDATED + ROWS_DELETED + ROWS_RETURNED AS TOTAL_ROWS,
-        ROUND(MEMORY_USAGE_BYTES/1024/1024, 2) AS MEMORY_MB,
-        STATUS
-    FROM _V_QRYHIST
-    WHERE END_TIME > NOW() - INTERVAL '24 HOURS'
-    AND ELAPSED_TIME > ${LONG_RUNNING_QUERY_HOURS} * 3600 * 1000000
-    ORDER BY ELAPSED_TIME DESC
-    LIMIT ${TOP_QUERIES_LIMIT};" "Slowest Queries (24h)"
-    
-    # Top queries by CPU usage
-    print_section "Top Queries by CPU Usage (Last 24 Hours)"
-    execute_sql "
-    SELECT 
-        SESSIONID,
-        USERNAME,
-        DBNAME,
-        ROUND(ELAPSED_TIME/1000000, 2) AS ELAPSED_SECONDS,
-        ROUND(CPU_TIME/1000000, 2) AS CPU_SECONDS,
-        ROUND((CPU_TIME * 100.0 / NULLIF(ELAPSED_TIME, 0)), 2) AS CPU_PCT,
-        ROUND(MEMORY_USAGE_BYTES/1024/1024, 2) AS MEMORY_MB,
-        STATUS
-    FROM _V_QRYHIST
-    WHERE END_TIME > NOW() - INTERVAL '24 HOURS'
-    AND CPU_TIME > 0
-    ORDER BY CPU_TIME DESC
-    LIMIT ${TOP_QUERIES_LIMIT};" "CPU Intensive Queries (24h)"
-    
-    # Top queries by memory usage
-    print_section "Top Queries by Memory Usage (Last 24 Hours)"
-    execute_sql "
-    SELECT 
-        SESSIONID,
-        USERNAME,
-        DBNAME,
-        ROUND(ELAPSED_TIME/1000000, 2) AS ELAPSED_SECONDS,
-        ROUND(MEMORY_USAGE_BYTES/1024/1024, 2) AS MEMORY_MB,
-        ROWS_INSERTED + ROWS_UPDATED + ROWS_DELETED + ROWS_RETURNED AS TOTAL_ROWS,
-        STATUS
-    FROM _V_QRYHIST
-    WHERE END_TIME > NOW() - INTERVAL '24 HOURS'
-    AND MEMORY_USAGE_BYTES > 0
-    ORDER BY MEMORY_USAGE_BYTES DESC
-    LIMIT ${TOP_QUERIES_LIMIT};" "Memory Intensive Queries (24h)"
-    
-    # Query statistics summary
-    print_section "Query Performance Summary (Last 24 Hours)"
-    execute_sql "
-    SELECT 
-        COUNT(*) AS TOTAL_QUERIES,
-        ROUND(AVG(ELAPSED_TIME/1000000), 2) AS AVG_ELAPSED_SEC,
-        ROUND(MAX(ELAPSED_TIME/1000000), 2) AS MAX_ELAPSED_SEC,
-        ROUND(AVG(MEMORY_USAGE_BYTES/1024/1024), 2) AS AVG_MEMORY_MB,
-        ROUND(MAX(MEMORY_USAGE_BYTES/1024/1024), 2) AS MAX_MEMORY_MB,
-        COUNT(CASE WHEN STATUS = 'COMPLETED' THEN 1 END) AS COMPLETED_QUERIES,
-        COUNT(CASE WHEN STATUS = 'FAILED' THEN 1 END) AS FAILED_QUERIES
-    FROM _V_QRYHIST
-    WHERE END_TIME > NOW() - INTERVAL '24 HOURS';" "24-Hour Query Statistics"
-    
-    # Failed queries analysis
-    print_section "Recent Failed Queries"
-    execute_sql "
-    SELECT 
-        SESSIONID,
-        USERNAME,
-        DBNAME,
-        START_TIME,
-        END_TIME,
-        ROUND(ELAPSED_TIME/1000000, 2) AS ELAPSED_SECONDS,
-        STATUS,
-        ERROR_CODE,
-        SUBSTR(ERROR_MESSAGE, 1, 100) AS ERROR_MSG
-    FROM _V_QRYHIST
-    WHERE END_TIME > NOW() - INTERVAL '24 HOURS'
-    AND STATUS = 'FAILED'
-    ORDER BY END_TIME DESC
-    LIMIT 10;" "Recent Query Failures"
+    # Build safe query history analysis
+    if column_exists "_V_QRYHIST" "SESSIONID"; then
+        print_section "Query History Analysis (Last 24 Hours)"
+        
+        local qry_sql="SELECT SESSIONID"
+        
+        if column_exists "_V_QRYHIST" "USERNAME"; then
+            qry_sql="$qry_sql, USERNAME"
+        fi
+        
+        if column_exists "_V_QRYHIST" "DBNAME"; then
+            qry_sql="$qry_sql, DBNAME"
+        fi
+        
+        if column_exists "_V_QRYHIST" "START_TIME"; then
+            qry_sql="$qry_sql, START_TIME"
+        fi
+        
+        if column_exists "_V_QRYHIST" "END_TIME"; then
+            qry_sql="$qry_sql, END_TIME"
+        fi
+        
+        if column_exists "_V_QRYHIST" "ELAPSED_TIME"; then
+            qry_sql="$qry_sql, ROUND(ELAPSED_TIME/1000000, 2) AS ELAPSED_SECONDS"
+        fi
+        
+        if column_exists "_V_QRYHIST" "STATUS"; then
+            qry_sql="$qry_sql, STATUS"
+        fi
+        
+        qry_sql="$qry_sql FROM _V_QRYHIST"
+        
+        # Add time filter if END_TIME exists
+        if column_exists "_V_QRYHIST" "END_TIME"; then
+            qry_sql="$qry_sql WHERE END_TIME > NOW() - INTERVAL '24 HOURS'"
+            
+            # Add elapsed time filter if available
+            if column_exists "_V_QRYHIST" "ELAPSED_TIME"; then
+                qry_sql="$qry_sql AND ELAPSED_TIME > ${LONG_RUNNING_QUERY_HOURS} * 3600 * 1000000"
+            fi
+        fi
+        
+        if column_exists "_V_QRYHIST" "ELAPSED_TIME"; then
+            qry_sql="$qry_sql ORDER BY ELAPSED_TIME DESC"
+        else
+            qry_sql="$qry_sql ORDER BY SESSIONID DESC"
+        fi
+        
+        qry_sql="$qry_sql LIMIT ${TOP_QUERIES_LIMIT}"
+        execute_sql "$qry_sql" "Top Queries by Performance"
+        
+        # CPU analysis if CPU_TIME column exists
+        if column_exists "_V_QRYHIST" "CPU_TIME" && column_exists "_V_QRYHIST" "END_TIME"; then
+            print_section "CPU Intensive Queries (Last 24 Hours)"
+            execute_sql "
+            SELECT 
+                SESSIONID,
+                USERNAME,
+                ROUND(ELAPSED_TIME/1000000, 2) AS ELAPSED_SECONDS,
+                ROUND(CPU_TIME/1000000, 2) AS CPU_SECONDS,
+                STATUS
+            FROM _V_QRYHIST
+            WHERE END_TIME > NOW() - INTERVAL '24 HOURS'
+            AND CPU_TIME > 0
+            ORDER BY CPU_TIME DESC
+            LIMIT ${TOP_QUERIES_LIMIT};" "CPU Intensive Queries"
+        fi
+        
+        # Memory analysis if MEMORY_USAGE_BYTES exists
+        if column_exists "_V_QRYHIST" "MEMORY_USAGE_BYTES" && column_exists "_V_QRYHIST" "END_TIME"; then
+            print_section "Memory Intensive Queries (Last 24 Hours)"
+            execute_sql "
+            SELECT 
+                SESSIONID,
+                USERNAME,
+                ROUND(ELAPSED_TIME/1000000, 2) AS ELAPSED_SECONDS,
+                ROUND(MEMORY_USAGE_BYTES/1024/1024, 2) AS MEMORY_MB,
+                STATUS
+            FROM _V_QRYHIST
+            WHERE END_TIME > NOW() - INTERVAL '24 HOURS'
+            AND MEMORY_USAGE_BYTES > 0
+            ORDER BY MEMORY_USAGE_BYTES DESC
+            LIMIT ${TOP_QUERIES_LIMIT};" "Memory Intensive Queries"
+        fi
+        
+        # Summary statistics
+        print_section "Query Performance Summary (Last 24 Hours)"
+        local summary_sql="SELECT COUNT(*) AS TOTAL_QUERIES"
+        
+        if column_exists "_V_QRYHIST" "ELAPSED_TIME"; then
+            summary_sql="$summary_sql, ROUND(AVG(ELAPSED_TIME/1000000), 2) AS AVG_ELAPSED_SEC"
+            summary_sql="$summary_sql, ROUND(MAX(ELAPSED_TIME/1000000), 2) AS MAX_ELAPSED_SEC"
+        fi
+        
+        if column_exists "_V_QRYHIST" "STATUS"; then
+            summary_sql="$summary_sql, COUNT(CASE WHEN STATUS = 'COMPLETED' THEN 1 END) AS COMPLETED_QUERIES"
+            summary_sql="$summary_sql, COUNT(CASE WHEN STATUS = 'FAILED' THEN 1 END) AS FAILED_QUERIES"
+        fi
+        
+        summary_sql="$summary_sql FROM _V_QRYHIST"
+        
+        if column_exists "_V_QRYHIST" "END_TIME"; then
+            summary_sql="$summary_sql WHERE END_TIME > NOW() - INTERVAL '24 HOURS'"
+        fi
+        
+        execute_sql "$summary_sql" "24-Hour Query Statistics"
+        
+        # Failed queries analysis
+        if column_exists "_V_QRYHIST" "STATUS" && column_exists "_V_QRYHIST" "END_TIME"; then
+            print_section "Recent Failed Queries"
+            local failed_sql="
+            SELECT 
+                SESSIONID,
+                USERNAME,
+                START_TIME,
+                STATUS"
+                
+            if column_exists "_V_QRYHIST" "ERROR_CODE"; then
+                failed_sql="$failed_sql, ERROR_CODE"
+            fi
+            
+            if column_exists "_V_QRYHIST" "ERROR_MESSAGE"; then
+                failed_sql="$failed_sql, SUBSTR(ERROR_MESSAGE, 1, 100) AS ERROR_MSG"
+            fi
+            
+            failed_sql="$failed_sql
+            FROM _V_QRYHIST
+            WHERE END_TIME > NOW() - INTERVAL '24 HOURS'
+            AND STATUS = 'FAILED'
+            ORDER BY END_TIME DESC
+            LIMIT 10"
+            
+            execute_sql "$failed_sql" "Recent Query Failures"
+        fi
+        
+    else
+        execute_safe_sql "_V_QRYHIST" "SELECT * FROM _V_QRYHIST LIMIT 10" "Query History (Basic)"
+    fi
 }
 
 #=============================================================================
