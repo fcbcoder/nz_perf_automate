@@ -1,11 +1,10 @@
-Empty file
 Netezza System Views Discovery
 ================================
 
 Testing connection...
       TIMESTAMP
 ---------------------
- 2025-09-29 13:32:01
+ 2025-09-29 14:01:33
 (1 row)
 
 ✓ Connection successful
@@ -176,6 +175,72 @@ Attempting to list all system views:
  _V_SPA
  _V_SPMVIEW
 
+Column Structure Analysis:
+
+Checking columns in _V_SESSION:
+All columns:
+ ID | PID | USERNAME | DBNAME | TYPE | CONNTIME | STATUS | COMMAND | PRIORITY | CID | IPADDR | CLIENT_OS_USERNAME
+----+-----+----------+--------+------+----------+--------+---------+----------+-----+--------+--------------------
+(0 rows)
+
+Testing specific columns:
+  SESSIONID: ✗
+  USERNAME: ✓
+  DBNAME: ✓
+  STATE: ✗
+  CLIENT_IP: ✗
+  LOGON_TIME: ✗
+  QUERY_START_TIME: ✗
+  PRIORITY: ✓
+
+Checking columns in _V_DATABASE:
+All columns:
+ OBJID | DATABASE | OWNER | CREATEDATE | DB_CHARSET | DB_COLLATION | DBCHARSET | DBCOLLATION | DBOWNERID | DBLOCKPID | DBSTATUS | BACKUPGROUP | OBJDELIM | DBCOLLECTHISTORY | ENCODING | DEFSCHEMAID | DEFSCHEMA | NCHARENCODING | NCHARSET | DBTRACKCHANGES
+-------+----------+-------+------------+------------+--------------+-----------+-------------+-----------+-----------+----------+-------------+----------+------------------+----------+-------------+-----------+---------------+----------+----------------
+(0 rows)
+
+Testing specific columns:
+  DATABASE: ✓
+  OWNER: ✓
+  CREATEDATE: ✓
+  USED_BYTES: ✗
+  SKEW: ✗
+
+Checking columns in _V_DISK:
+All columns:
+ HW_HWID | HW_ROLE | HW_ROLETEXT | HW_PARENT | HW_POSITION | HW_SPAID | HW_RACKID | HW_RACKPOS | HW_HWVER | HW_SERNUM | HW_DISKSZ | HW_DISKMODEL | HW_STATE | HW_STATETEXT
+---------+---------+-------------+-----------+-------------+----------+-----------+------------+----------+-----------+-----------+--------------+----------+--------------
+(0 rows)
+
+Testing specific columns:
+  HOST: ✗
+  FILESYSTEM: ✗
+  TOTAL_BYTES: ✗
+  USED_BYTES: ✗
+  FREE_BYTES: ✗
+  READS_PER_SEC: ✗
+  WRITES_PER_SEC: ✗
+  UTILIZATION_PCT: ✗
+
+Checking columns in _V_QRYHIST:
+All columns:
+ QH_SESSIONID | QH_PLANID | QH_CLIENTID | QH_CLIIPADDR | QH_DATABASE | QH_USER | QH_SQL | QH_TSUBMIT | QH_TSTART | QH_TEND | QH_PRIORITY | QH_PRITXT | QH_ESTCOST | QH_ESTDISK | QH_ESTMEM | QH_SNIPPETS | QH_SNPTSDONE | QH_RESROWS | QH_RESBYTES | QH_CLIENT_USER_ID | QH_CLIENT_APPLICATION_NAME | QH_CLIENT_WORKSTATION_NAME | QH_CLIENT_ACCOUNTING_STRING
+--------------+-----------+-------------+--------------+-------------+---------+--------+------------+-----------+---------+-------------+-----------+------------+------------+-----------+-------------+--------------+------------+-------------+-------------------+----------------------------+----------------------------+-----------------------------
+(0 rows)
+
+Testing specific columns:
+  SESSIONID: ✗
+  USERNAME: ✗
+  DBNAME: ✗
+  START_TIME: ✗
+  END_TIME: ✗
+  ELAPSED_TIME: ✗
+  CPU_TIME: ✗
+  MEMORY_USAGE_BYTES: ✗
+  STATUS: ✗
+  ERROR_CODE: ✗
+  ERROR_MESSAGE: ✗
+
 Sample data from available views:
 
 Sample from _V_SESSION:
@@ -190,6 +255,8 @@ Sample from _V_DATABASE:
  CIDPR_DDL | CIDADM
 (5 rows)
 
+
+Sample from _V_QRYHIST:
 
 Discovery complete!
 Use this information to update the main performance script.
