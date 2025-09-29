@@ -12,7 +12,8 @@
 NETEZZA_HOST="${NETEZZA_HOST:-localhost}"
 NETEZZA_DB="${NETEZZA_DB:-SYSTEM}"
 NETEZZA_USER="${NETEZZA_USER:-ADMIN}"
-NZSQL_CMD="nzsql -host ${NETEZZA_HOST} -db ${NETEZZA_DB} -u ${NETEZZA_USER}"
+NZSQL_PATH="${NZSQL_PATH:-nzsql}"  # Allow custom nzsql path
+NZSQL_CMD="$NZSQL_PATH -host ${NETEZZA_HOST} -db ${NETEZZA_DB} -u ${NETEZZA_USER}"
 
 # Runtime thresholds (configurable)
 LONG_RUNNING_QUERY_HOURS=2
@@ -63,16 +64,112 @@ print_success() {
 execute_sql() {
     local sql="$1"
     local description="$2"
+    local show_errors="${3:-false}"
     
     echo "-- $description" >> "$LOG_FILE"
     echo "$sql" >> "$LOG_FILE"
     echo "" >> "$LOG_FILE"
     
-    $NZSQL_CMD -c "$sql" 2>/dev/null
-    if [ $? -ne 0 ]; then
+    if [ "$show_errors" = "true" ]; then
+        echo "Executing: $description"
+        $NZSQL_CMD -c "$sql"
+        local exit_code=$?
+    else
+        $NZSQL_CMD -c "$sql" 2>/dev/null
+        local exit_code=$?
+    fi
+    
+    if [ $exit_code -ne 0 ]; then
         print_error "Failed to execute: $description"
+        if [ "$show_errors" = "false" ]; then
+            echo "Run with debug mode to see detailed error messages"
+        fi
         return 1
     fi
+    return 0
+}
+
+#=============================================================================
+# System Discovery Functions
+#=============================================================================
+
+discover_system_views() {
+    print_header "NETEZZA SYSTEM VIEWS DISCOVERY"
+    
+    print_section "Available System Views"
+    echo "Discovering available system views and tables..."
+    
+    # Check for different possible system view patterns
+    local view_patterns=("_V_%" "_T_%" "V_%" "T_%")
+    local found_views=()
+    
+    for pattern in "${view_patterns[@]}"; do
+        print_section "Checking pattern: $pattern"
+        if execute_sql "
+        SELECT VIEWNAME 
+        FROM _V_VIEW 
+        WHERE VIEWNAME LIKE '$pattern' 
+        ORDER BY VIEWNAME;" "System Views matching $pattern" true; then
+            found_views+=("$pattern")
+        elif execute_sql "
+        SELECT TABLE_NAME 
+        FROM INFORMATION_SCHEMA.TABLES 
+        WHERE TABLE_NAME LIKE '$pattern' 
+        ORDER BY TABLE_NAME;" "System Tables matching $pattern" true; then
+            found_views+=("$pattern")
+        elif execute_sql "
+        SELECT TABLENAME 
+        FROM _T_TABLE 
+        WHERE TABLENAME LIKE '$pattern' 
+        ORDER BY TABLENAME;" "System Objects matching $pattern" true; then
+            found_views+=("$pattern")
+        fi
+    done
+    
+    # Try common system views individually
+    print_section "Testing Common System Views"
+    local common_views=(
+        "_V_SESSION" "_V_SYSTEM_STATE" "_V_DATABASE" "_V_DISK" "_V_HOST"
+        "_V_QRYHIST" "_V_SQL_TEXT" "_V_LOCK" "_V_SYSTEM_CONFIG"
+        "V_SESSION" "V_SYSTEM_STATE" "V_DATABASE" "V_DISK" "V_HOST"
+        "_T_SESSION" "_T_SYSTEM_STATE" "_T_DATABASE" "_T_DISK" "_T_HOST"
+    )
+    
+    for view in "${common_views[@]}"; do
+        echo -n "Testing $view... "
+        if execute_sql "SELECT COUNT(*) FROM $view LIMIT 1;" "Test $view" false; then
+            echo -e "${GREEN}✓ Available${NC}"
+        else
+            echo -e "${RED}✗ Not available${NC}"
+        fi
+    done
+    
+    print_section "System Catalog Information"
+    # Try different ways to get system catalog info
+    execute_sql "SELECT VERSION();" "Database Version" true
+    execute_sql "SELECT CURRENT_USER, CURRENT_DATABASE, CURRENT_TIMESTAMP;" "Current Connection Info" true
+}
+
+check_nzsql_availability() {
+    print_section "Checking nzsql availability"
+    
+    # Check if nzsql is available
+    if ! command -v "$NZSQL_PATH" &> /dev/null; then
+        print_error "nzsql command not found at: $NZSQL_PATH"
+        echo ""
+        echo "Common nzsql locations:"
+        echo "  - /nz/bin/nzsql"
+        echo "  - /opt/nz/bin/nzsql"
+        echo "  - /usr/local/bin/nzsql"
+        echo ""
+        echo "Please set the correct path using:"
+        echo "  export NZSQL_PATH=/path/to/nzsql"
+        echo "  or update the configuration in this script"
+        return 1
+    fi
+    
+    print_success "nzsql found at: $NZSQL_PATH"
+    return 0
 }
 
 #=============================================================================
@@ -82,13 +179,22 @@ execute_sql() {
 check_netezza_system_state() {
     print_header "NETEZZA SYSTEM STATE ANALYSIS"
     
-    # System version and state
-    print_section "System Version and State"
-    execute_sql "SELECT * FROM _V_SYSTEM_STATE;" "System State"
+    # Basic system information first
+    print_section "Basic System Information"
+    execute_sql "SELECT VERSION();" "Database Version" true
+    execute_sql "SELECT CURRENT_USER, CURRENT_DATABASE, CURRENT_TIMESTAMP;" "Current Connection" true
     
-    # Database list and sizes
+    # Try different system state views
+    print_section "System State"
+    if ! execute_sql "SELECT * FROM _V_SYSTEM_STATE;" "System State (_V_SYSTEM_STATE)"; then
+        if ! execute_sql "SELECT * FROM V_SYSTEM_STATE;" "System State (V_SYSTEM_STATE)"; then
+            execute_sql "SELECT 'System state view not available' AS MESSAGE;" "System State Fallback"
+        fi
+    fi
+    
+    # Database information with fallbacks
     print_section "Database Information"
-    execute_sql "
+    if ! execute_sql "
     SELECT 
         DATABASE,
         OWNER,
@@ -96,11 +202,15 @@ check_netezza_system_state() {
         ROUND(USED_BYTES/1024/1024/1024, 2) AS USED_GB,
         ROUND(SKEW/100.0, 2) AS SKEW_PCT
     FROM _V_DATABASE 
-    ORDER BY USED_BYTES DESC;" "Database Sizes"
+    ORDER BY USED_BYTES DESC;" "Database Sizes (_V_DATABASE)"; then
+        if ! execute_sql "SELECT DATNAME, DATDBA FROM PG_DATABASE;" "Database List (PostgreSQL style)"; then
+            execute_sql "SELECT DATABASE FROM _T_DATABASE;" "Database List (fallback)"
+        fi
+    fi
     
-    # Disk usage
+    # Disk usage with fallbacks
     print_section "Disk Usage"
-    execute_sql "
+    if ! execute_sql "
     SELECT 
         HOST,
         FILESYSTEM,
@@ -109,11 +219,15 @@ check_netezza_system_state() {
         ROUND(FREE_BYTES/1024/1024/1024, 2) AS FREE_GB,
         ROUND((USED_BYTES*100.0/TOTAL_BYTES), 2) AS USED_PCT
     FROM _V_DISK
-    ORDER BY USED_PCT DESC;" "Disk Usage by Host"
+    ORDER BY USED_PCT DESC;" "Disk Usage (_V_DISK)"; then
+        if ! execute_sql "SELECT * FROM V_DISK;" "Disk Usage (V_DISK)"; then
+            execute_sql "SELECT 'Disk usage view not available' AS MESSAGE;" "Disk Usage Fallback"
+        fi
+    fi
     
-    # System configuration
-    print_section "Key System Configuration"
-    execute_sql "
+    # System configuration with fallbacks
+    print_section "System Configuration"
+    if ! execute_sql "
     SELECT 
         NAME,
         VALUE,
@@ -121,7 +235,11 @@ check_netezza_system_state() {
     FROM _V_SYSTEM_CONFIG 
     WHERE NAME IN ('SYSTEM.HOSTNAME', 'SYSTEM.VERSION', 'SYSTEM.MAX_SESSIONS', 
                    'SYSTEM.MEMORY.TOTAL', 'SYSTEM.CPU.COUNT')
-    ORDER BY NAME;" "System Configuration"
+    ORDER BY NAME;" "System Configuration (_V_SYSTEM_CONFIG)"; then
+        if ! execute_sql "SELECT * FROM V_SYSTEM_CONFIG LIMIT 10;" "System Configuration (V_SYSTEM_CONFIG)"; then
+            execute_sql "SELECT 'System configuration view not available' AS MESSAGE;" "System Configuration Fallback"
+        fi
+    fi
 }
 
 #=============================================================================
@@ -517,15 +635,16 @@ show_main_menu() {
     echo -e "${GREEN}╚══════════════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "${CYAN}Main Options:${NC}"
-    echo "1. Netezza System State Analysis"
-    echo "2. Linux OS Performance Monitoring"
-    echo "3. Active Sessions and SQL Analysis"
-    echo "4. Query Performance Analysis"
-    echo "5. Interactive SQL Explain Plan Analysis"
-    echo "6. Run Complete System Check (All Above)"
-    echo "7. Configuration Settings"
-    echo "8. View Log File"
-    echo "9. Exit"
+    echo "1. Discover Available System Views (Run this first!)"
+    echo "2. Netezza System State Analysis"
+    echo "3. Linux OS Performance Monitoring"
+    echo "4. Active Sessions and SQL Analysis"
+    echo "5. Query Performance Analysis"
+    echo "6. Interactive SQL Explain Plan Analysis"
+    echo "7. Run Complete System Check (Options 2-5)"
+    echo "8. Configuration Settings"
+    echo "9. View Log File"
+    echo "10. Exit"
     echo ""
     echo -e "${YELLOW}Current Settings:${NC}"
     echo "  - Host: $NETEZZA_HOST"
@@ -540,33 +659,39 @@ configure_settings() {
     print_header "CONFIGURATION SETTINGS"
     
     echo "Current configuration:"
-    echo "1. Netezza Host: $NETEZZA_HOST"
-    echo "2. Database: $NETEZZA_DB"
-    echo "3. User: $NETEZZA_USER"
-    echo "4. Long Running Query Threshold: $LONG_RUNNING_QUERY_HOURS hours"
-    echo "5. Top Sessions Limit: $TOP_SESSIONS_LIMIT"
-    echo "6. Top Queries Limit: $TOP_QUERIES_LIMIT"
+    echo "1. nzsql Path: $NZSQL_PATH"
+    echo "2. Netezza Host: $NETEZZA_HOST"
+    echo "3. Database: $NETEZZA_DB"
+    echo "4. User: $NETEZZA_USER"
+    echo "5. Long Running Query Threshold: $LONG_RUNNING_QUERY_HOURS hours"
+    echo "6. Top Sessions Limit: $TOP_SESSIONS_LIMIT"
+    echo "7. Top Queries Limit: $TOP_QUERIES_LIMIT"
     echo ""
     
-    read -p "Which setting would you like to change (1-6, or press Enter to return)? " setting_choice
+    read -p "Which setting would you like to change (1-7, or press Enter to return)? " setting_choice
     
     case $setting_choice in
         1)
-            read -p "Enter new Netezza host: " new_host
-            NETEZZA_HOST="$new_host"
-            NZSQL_CMD="nzsql -host ${NETEZZA_HOST} -db ${NETEZZA_DB} -u ${NETEZZA_USER}"
+            read -p "Enter full path to nzsql: " new_path
+            NZSQL_PATH="$new_path"
+            NZSQL_CMD="$NZSQL_PATH -host ${NETEZZA_HOST} -db ${NETEZZA_DB} -u ${NETEZZA_USER}"
             ;;
         2)
-            read -p "Enter new database: " new_db
-            NETEZZA_DB="$new_db"
-            NZSQL_CMD="nzsql -host ${NETEZZA_HOST} -db ${NETEZZA_DB} -u ${NETEZZA_USER}"
+            read -p "Enter new Netezza host: " new_host
+            NETEZZA_HOST="$new_host"
+            NZSQL_CMD="$NZSQL_PATH -host ${NETEZZA_HOST} -db ${NETEZZA_DB} -u ${NETEZZA_USER}"
             ;;
         3)
-            read -p "Enter new username: " new_user
-            NETEZZA_USER="$new_user"
-            NZSQL_CMD="nzsql -host ${NETEZZA_HOST} -db ${NETEZZA_DB} -u ${NETEZZA_USER}"
+            read -p "Enter new database: " new_db
+            NETEZZA_DB="$new_db"
+            NZSQL_CMD="$NZSQL_PATH -host ${NETEZZA_HOST} -db ${NETEZZA_DB} -u ${NETEZZA_USER}"
             ;;
         4)
+            read -p "Enter new username: " new_user
+            NETEZZA_USER="$new_user"
+            NZSQL_CMD="$NZSQL_PATH -host ${NETEZZA_HOST} -db ${NETEZZA_DB} -u ${NETEZZA_USER}"
+            ;;
+        5)
             read -p "Enter new long running query threshold (hours): " new_threshold
             if [[ "$new_threshold" =~ ^[0-9]+$ ]]; then
                 LONG_RUNNING_QUERY_HOURS="$new_threshold"
@@ -574,7 +699,7 @@ configure_settings() {
                 print_error "Invalid threshold value"
             fi
             ;;
-        5)
+        6)
             read -p "Enter new top sessions limit: " new_limit
             if [[ "$new_limit" =~ ^[0-9]+$ ]]; then
                 TOP_SESSIONS_LIMIT="$new_limit"
@@ -582,7 +707,7 @@ configure_settings() {
                 print_error "Invalid limit value"
             fi
             ;;
-        6)
+        7)
             read -p "Enter new top queries limit: " new_limit
             if [[ "$new_limit" =~ ^[0-9]+$ ]]; then
                 TOP_QUERIES_LIMIT="$new_limit"
@@ -616,7 +741,7 @@ view_log_file() {
 
 run_complete_check() {
     print_header "COMPLETE SYSTEM CHECK STARTING"
-    echo "This will run all system checks. This may take several minutes..."
+    echo "This will run all system checks (options 2-5). This may take several minutes..."
     echo ""
     read -p "Continue? (y/n): " confirm
     
@@ -637,14 +762,29 @@ run_complete_check() {
 
 test_connection() {
     print_section "Testing Netezza Connection"
-    echo "Connecting to: $NETEZZA_HOST/$NETEZZA_DB as $NETEZZA_USER"
     
-    if execute_sql "SELECT CURRENT_TIMESTAMP;" "Connection Test"; then
+    # First check if nzsql is available
+    if ! check_nzsql_availability; then
+        return 1
+    fi
+    
+    echo "Connecting to: $NETEZZA_HOST/$NETEZZA_DB as $NETEZZA_USER"
+    echo "Using nzsql at: $NZSQL_PATH"
+    
+    if execute_sql "SELECT CURRENT_TIMESTAMP;" "Connection Test" true; then
         print_success "Connection successful!"
         return 0
     else
         print_error "Connection failed!"
-        echo "Please check your connection settings and credentials."
+        echo ""
+        echo "Possible issues:"
+        echo "1. Check nzsql path: $NZSQL_PATH"
+        echo "2. Verify connection parameters (host, database, user)"
+        echo "3. Ensure network connectivity to Netezza host"
+        echo "4. Check if authentication is required (password prompt)"
+        echo ""
+        echo "Try running manually:"
+        echo "$NZSQL_CMD -c 'SELECT CURRENT_TIMESTAMP;'"
         return 1
     fi
 }
@@ -672,39 +812,43 @@ main() {
         
         case $choice in
             1)
-                check_netezza_system_state
+                discover_system_views
                 read -p "Press Enter to continue..."
                 ;;
             2)
-                check_os_performance
+                check_netezza_system_state
                 read -p "Press Enter to continue..."
                 ;;
             3)
-                check_active_sessions
+                check_os_performance
                 read -p "Press Enter to continue..."
                 ;;
             4)
-                check_query_performance
+                check_active_sessions
                 read -p "Press Enter to continue..."
                 ;;
             5)
-                interactive_explain_plan
+                check_query_performance
+                read -p "Press Enter to continue..."
                 ;;
             6)
-                run_complete_check
+                interactive_explain_plan
                 ;;
             7)
-                configure_settings
+                run_complete_check
                 ;;
             8)
-                view_log_file
+                configure_settings
                 ;;
             9)
+                view_log_file
+                ;;
+            10)
                 print_success "Thank you for using Netezza Performance Automation Tool!"
                 exit 0
                 ;;
             *)
-                print_error "Invalid option. Please choose 1-9."
+                print_error "Invalid option. Please choose 1-10."
                 read -p "Press Enter to continue..."
                 ;;
         esac
