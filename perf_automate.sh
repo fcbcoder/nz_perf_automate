@@ -9,11 +9,22 @@
 #=============================================================================
 
 # Configuration Variables
-NETEZZA_HOST="${NETEZZA_HOST:-localhost}"
+NETEZZA_HOST="${NETEZZA_HOST:-}"  # Will prompt for host if not set
 NETEZZA_DB="${NETEZZA_DB:-SYSTEM}"
 NETEZZA_USER="${NETEZZA_USER:-ADMIN}"
 NZSQL_PATH="${NZSQL_PATH:-nzsql}"  # Allow custom nzsql path
-NZSQL_CMD="$NZSQL_PATH -host ${NETEZZA_HOST} -db ${NETEZZA_DB} -u ${NETEZZA_USER}"
+
+# Build nzsql command with proper options
+build_nzsql_cmd() {
+    local cmd="$NZSQL_PATH"
+    if [[ -n "$NETEZZA_HOST" ]]; then
+        cmd="$cmd -host ${NETEZZA_HOST}"
+    fi
+    cmd="$cmd -d ${NETEZZA_DB} -u ${NETEZZA_USER}"
+    echo "$cmd"
+}
+
+NZSQL_CMD=$(build_nzsql_cmd)
 
 # Runtime thresholds (configurable)
 LONG_RUNNING_QUERY_HOURS=2
@@ -693,8 +704,16 @@ interactive_explain_plan() {
             ;;
         *)
             print_error "Invalid option"
+            read -p "Press Enter to continue..."
             ;;
     esac
+    
+    # After any analysis, ask if user wants to continue or return to main menu
+    echo ""
+    read -p "Would you like to perform another analysis? (y/n): " continue_choice
+    if [[ "$continue_choice" =~ ^[Yy] ]]; then
+        interactive_explain_plan  # Recursive call to show menu again
+    fi
 }
 
 analyze_session_sql() {
@@ -773,6 +792,9 @@ analyze_session_sql() {
             print_warning "Could not retrieve SQL text for session $session_id"
         fi
     fi
+    
+    echo ""
+    read -p "Press Enter to continue..."
 }
 
 analyze_historical_sql() {
@@ -800,6 +822,7 @@ analyze_historical_sql() {
     
     if [[ ! "$session_id" =~ ^[0-9]+$ ]]; then
         print_error "Invalid session ID"
+        read -p "Press Enter to continue..."
         return
     fi
     
@@ -824,6 +847,36 @@ analyze_historical_sql() {
     FROM _V_QRYHIST
     WHERE QH_SESSIONID = ${session_id}
     ORDER BY QH_TSUBMIT DESC;" "Performance Details for Session ${session_id}"
+    
+    # Ask if user wants to analyze the SQL
+    echo ""
+    read -p "Do you want to analyze the SQL from this session? (y/n): " analyze_choice
+    
+    if [[ "$analyze_choice" =~ ^[Yy] ]]; then
+        # Get the most recent SQL for analysis
+        sql_text=$($NZSQL_CMD -t -c "SELECT QH_SQL FROM _V_QRYHIST WHERE QH_SESSIONID = ${session_id} ORDER BY QH_TSUBMIT DESC LIMIT 1;" 2>/dev/null | head -1)
+        
+        if [[ -n "$sql_text" && "$sql_text" != *"0 rows"* ]]; then
+            print_section "SQL Analysis for Session $session_id"
+            echo "SQL Statement:"
+            echo "$sql_text"
+            echo ""
+            
+            # Generate explain plan
+            read -p "Generate explain plan for this SQL? (y/n): " explain_choice
+            if [[ "$explain_choice" =~ ^[Yy] ]]; then
+                print_section "Explain Plan"
+                $NZSQL_CMD -c "EXPLAIN VERBOSE $sql_text" 2>/dev/null
+            fi
+            
+            analyze_sql_for_issues "$sql_text"
+        else
+            print_warning "Could not retrieve SQL text for session $session_id"
+        fi
+    fi
+    
+    echo ""
+    read -p "Press Enter to continue..."
 }
 
 analyze_custom_sql() {
@@ -854,6 +907,9 @@ analyze_custom_sql() {
     analyze_sql_for_issues "$sql_statement"
     
     rm -f "$temp_sql_file"
+    
+    echo ""
+    read -p "Press Enter to continue..."
 }
 
 generate_explain_plan_for_session() {
@@ -967,7 +1023,7 @@ show_main_menu() {
     echo "10. Exit"
     echo ""
     echo -e "${YELLOW}Current Settings:${NC}"
-    echo "  - Host: $NETEZZA_HOST"
+    echo "  - Host: ${NETEZZA_HOST:-'(local connection)'}"
     echo "  - Database: $NETEZZA_DB"
     echo "  - User: $NETEZZA_USER"
     echo "  - Long Query Threshold: $LONG_RUNNING_QUERY_HOURS hours"
@@ -980,7 +1036,7 @@ configure_settings() {
     
     echo "Current configuration:"
     echo "1. nzsql Path: $NZSQL_PATH"
-    echo "2. Netezza Host: $NETEZZA_HOST"
+    echo "2. Netezza Host: ${NETEZZA_HOST:-'(local connection)'}"
     echo "3. Database: $NETEZZA_DB"
     echo "4. User: $NETEZZA_USER"
     echo "5. Long Running Query Threshold: $LONG_RUNNING_QUERY_HOURS hours"
@@ -994,22 +1050,22 @@ configure_settings() {
         1)
             read -p "Enter full path to nzsql: " new_path
             NZSQL_PATH="$new_path"
-            NZSQL_CMD="$NZSQL_PATH -host ${NETEZZA_HOST} -db ${NETEZZA_DB} -u ${NETEZZA_USER}"
+            NZSQL_CMD=$(build_nzsql_cmd)
             ;;
         2)
-            read -p "Enter new Netezza host: " new_host
+            read -p "Enter new Netezza host (leave blank for local connection): " new_host
             NETEZZA_HOST="$new_host"
-            NZSQL_CMD="$NZSQL_PATH -host ${NETEZZA_HOST} -db ${NETEZZA_DB} -u ${NETEZZA_USER}"
+            NZSQL_CMD=$(build_nzsql_cmd)
             ;;
         3)
             read -p "Enter new database: " new_db
             NETEZZA_DB="$new_db"
-            NZSQL_CMD="$NZSQL_PATH -host ${NETEZZA_HOST} -db ${NETEZZA_DB} -u ${NETEZZA_USER}"
+            NZSQL_CMD=$(build_nzsql_cmd)
             ;;
         4)
             read -p "Enter new username: " new_user
             NETEZZA_USER="$new_user"
-            NZSQL_CMD="$NZSQL_PATH -host ${NETEZZA_HOST} -db ${NETEZZA_DB} -u ${NETEZZA_USER}"
+            NZSQL_CMD=$(build_nzsql_cmd)
             ;;
         5)
             read -p "Enter new long running query threshold (hours): " new_threshold
@@ -1088,8 +1144,27 @@ test_connection() {
         return 1
     fi
     
-    echo "Connecting to: $NETEZZA_HOST/$NETEZZA_DB as $NETEZZA_USER"
+    # Prompt for host if not set
+    if [[ -z "$NETEZZA_HOST" ]]; then
+        echo ""
+        echo "No Netezza host specified. You can:"
+        echo "1. Connect to local Netezza instance"
+        echo "2. Specify a remote host"
+        echo ""
+        read -p "Enter Netezza host (or press Enter for local connection): " input_host
+        if [[ -n "$input_host" ]]; then
+            NETEZZA_HOST="$input_host"
+            NZSQL_CMD=$(build_nzsql_cmd)
+        fi
+    fi
+    
+    if [[ -n "$NETEZZA_HOST" ]]; then
+        echo "Connecting to: $NETEZZA_HOST/$NETEZZA_DB as $NETEZZA_USER"
+    else
+        echo "Connecting to: local/$NETEZZA_DB as $NETEZZA_USER"
+    fi
     echo "Using nzsql at: $NZSQL_PATH"
+    echo "Command: $NZSQL_CMD"
     
     if execute_sql "SELECT CURRENT_TIMESTAMP;" "Connection Test" true; then
         print_success "Connection successful!"
