@@ -682,12 +682,13 @@ interactive_explain_plan() {
     
     echo -e "${CYAN}Available options:${NC}"
     echo "1. Generate explain plan for a specific session"
-    echo "2. Analyze SQL from query history"
+    echo "2. Analyze SQL from query history"  
     echo "3. Enter custom SQL for analysis"
-    echo "4. Return to main menu"
+    echo "4. Use nz_plan utility (requires plan ID)"
+    echo "5. Return to main menu"
     echo ""
     
-    read -p "Choose an option (1-4): " choice
+    read -p "Choose an option (1-5): " choice
     
     case $choice in
         1)
@@ -700,6 +701,9 @@ interactive_explain_plan() {
             analyze_custom_sql
             ;;
         4)
+            use_nz_plan_utility
+            ;;
+        5)
             return
             ;;
         *)
@@ -783,9 +787,18 @@ analyze_session_sql() {
             echo "$sql_text"
             echo ""
             
-            # Generate explain plan
+            # Generate explain plan with proper context
             print_section "Explain Plan"
-            $NZSQL_CMD -c "EXPLAIN VERBOSE $sql_text" 2>/dev/null
+            
+            # Get database context from session
+            session_db=$($NZSQL_CMD -t -c "SELECT DBNAME FROM _V_SESSION WHERE ID = ${session_id} LIMIT 1;" 2>/dev/null | head -1 | tr -d ' ')
+            if [[ -n "$session_db" ]]; then
+                echo "Using session database: $session_db"
+                generate_explain_plan "$sql_text" "$session_db" ""
+            else
+                echo "Using current database: $NETEZZA_DB"
+                generate_explain_plan "$sql_text" "$NETEZZA_DB" ""
+            fi
             
             analyze_sql_for_issues "$sql_text"
         else
@@ -843,10 +856,28 @@ analyze_historical_sql() {
         QH_SNIPPETS,
         QH_RESROWS,
         QH_RESBYTES,
+        QH_PLANID,
         SUBSTR(QH_SQL, 1, 500) AS SQL_TEXT
     FROM _V_QRYHIST
     WHERE QH_SESSIONID = ${session_id}
     ORDER BY QH_TSUBMIT DESC;" "Performance Details for Session ${session_id}"
+    
+    # Check if plan IDs are available
+    plan_id_count=$($NZSQL_CMD -t -c "SELECT COUNT(*) FROM _V_QRYHIST WHERE QH_SESSIONID = ${session_id} AND QH_PLANID IS NOT NULL;" 2>/dev/null | head -1 | tr -d ' ')
+    
+    if [[ "$plan_id_count" -gt 0 ]]; then
+        print_success "Plan IDs available! You can use option 4 (nz_plan utility) for detailed execution plans."
+        echo "Available Plan IDs for this session:"
+        execute_sql "
+        SELECT 
+            QH_PLANID,
+            QH_TSTART,
+            SUBSTR(QH_SQL, 1, 100) AS SQL_PREVIEW
+        FROM _V_QRYHIST
+        WHERE QH_SESSIONID = ${session_id} 
+        AND QH_PLANID IS NOT NULL
+        ORDER BY QH_TSTART DESC;" "Plan IDs for Session ${session_id}"
+    fi
     
     # Ask if user wants to analyze the SQL
     echo ""
@@ -866,7 +897,16 @@ analyze_historical_sql() {
             read -p "Generate explain plan for this SQL? (y/n): " explain_choice
             if [[ "$explain_choice" =~ ^[Yy] ]]; then
                 print_section "Explain Plan"
-                $NZSQL_CMD -c "EXPLAIN VERBOSE $sql_text" 2>/dev/null
+                
+                # Get database context from query history
+                session_db=$($NZSQL_CMD -t -c "SELECT QH_DATABASE FROM _V_QRYHIST WHERE QH_SESSIONID = ${session_id} ORDER BY QH_TSUBMIT DESC LIMIT 1;" 2>/dev/null | head -1 | tr -d ' ')
+                if [[ -n "$session_db" ]]; then
+                    echo "Using query database: $session_db"
+                    generate_explain_plan "$sql_text" "$session_db" ""
+                else
+                    echo "Using current database: $NETEZZA_DB"
+                    generate_explain_plan "$sql_text" "$NETEZZA_DB" ""
+                fi
             fi
             
             analyze_sql_for_issues "$sql_text"
@@ -897,16 +937,127 @@ analyze_custom_sql() {
         return
     fi
     
+    # Ask which database/schema to use for explain plan
+    echo ""
+    read -p "Enter database name for EXPLAIN (or press Enter to use current: $NETEZZA_DB): " explain_db
+    if [[ -z "$explain_db" ]]; then
+        explain_db="$NETEZZA_DB"
+    fi
+    
+    read -p "Enter schema name (or press Enter for default): " explain_schema
+    
     # Create a temporary file with the SQL
     temp_sql_file=$(mktemp)
     echo "$sql_statement" > "$temp_sql_file"
     
     print_section "Explain Plan Analysis"
-    $NZSQL_CMD -c "EXPLAIN VERBOSE $sql_statement"
+    generate_explain_plan "$sql_statement" "$explain_db" "$explain_schema"
     
     analyze_sql_for_issues "$sql_statement"
     
     rm -f "$temp_sql_file"
+    
+    echo ""
+    read -p "Press Enter to continue..."
+}
+
+use_nz_plan_utility() {
+    print_section "Using nz_plan Utility"
+    
+    echo "This method uses the nz_plan utility to retrieve execution plans by plan ID."
+    echo ""
+    echo "First, let's find plan IDs from recent query history:"
+    
+    # Show recent queries with their potential plan IDs
+    execute_sql "
+    SELECT 
+        QH_SESSIONID,
+        QH_USER,
+        QH_DATABASE,
+        QH_TSTART,
+        QH_TEND,
+        ROUND(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)), 2) AS ELAPSED_SECONDS,
+        QH_PLANID,
+        SUBSTR(QH_SQL, 1, 100) AS SQL_PREVIEW
+    FROM _V_QRYHIST
+    WHERE QH_TEND > NOW() - INTERVAL '24 HOURS'
+    AND QH_PLANID IS NOT NULL
+    ORDER BY QH_TEND DESC
+    LIMIT 20;" "Recent Queries with Plan IDs"
+    
+    echo ""
+    read -p "Enter Plan ID: " plan_id
+    
+    if [[ ! "$plan_id" =~ ^[0-9]+$ ]]; then
+        print_error "Invalid plan ID"
+        return
+    fi
+    
+    # Check if nz_plan utility is available
+    local nz_plan_path="/nz/support/contrib/bin/nz_plan"
+    local alt_paths=(
+        "/opt/nz/support/contrib/bin/nz_plan"
+        "/usr/local/nz/support/contrib/bin/nz_plan"
+        "/nz/bin/nz_plan"
+    )
+    
+    local found_nz_plan=""
+    
+    if [[ -f "$nz_plan_path" && -x "$nz_plan_path" ]]; then
+        found_nz_plan="$nz_plan_path"
+    else
+        for path in "${alt_paths[@]}"; do
+            if [[ -f "$path" && -x "$path" ]]; then
+                found_nz_plan="$path"
+                break
+            fi
+        done
+    fi
+    
+    if [[ -z "$found_nz_plan" ]]; then
+        print_warning "nz_plan utility not found in standard locations."
+        echo ""
+        echo "Standard locations checked:"
+        echo "  - /nz/support/contrib/bin/nz_plan"
+        echo "  - /opt/nz/support/contrib/bin/nz_plan"
+        echo "  - /usr/local/nz/support/contrib/bin/nz_plan"
+        echo "  - /nz/bin/nz_plan"
+        echo ""
+        read -p "Enter full path to nz_plan utility (or press Enter to skip): " custom_path
+        
+        if [[ -n "$custom_path" && -f "$custom_path" && -x "$custom_path" ]]; then
+            found_nz_plan="$custom_path"
+        else
+            print_error "nz_plan utility not available"
+            return
+        fi
+    fi
+    
+    print_section "Generating Plan using nz_plan utility"
+    print_success "Using nz_plan at: $found_nz_plan"
+    
+    # Create output file
+    local plan_file="/tmp/netezza_plan_${plan_id}_$(date +%Y%m%d_%H%M%S).pln"
+    
+    echo "Executing: $found_nz_plan $plan_id"
+    echo "Output file: $plan_file"
+    
+    if "$found_nz_plan" "$plan_id" > "$plan_file" 2>&1; then
+        print_success "Plan generated successfully!"
+        echo ""
+        echo "Plan contents:"
+        echo "=============================================================="
+        cat "$plan_file"
+        echo "=============================================================="
+        echo ""
+        echo "Plan saved to: $plan_file"
+    else
+        print_error "Failed to generate plan with nz_plan utility"
+        echo ""
+        echo "Error output:"
+        cat "$plan_file"
+        rm -f "$plan_file"
+    fi
     
     echo ""
     read -p "Press Enter to continue..."
@@ -938,6 +1089,58 @@ generate_explain_plan_for_session() {
         WHERE QH_SESSIONID = ${session_id}
         ORDER BY QH_TSUBMIT DESC
         LIMIT 1;" "Session Performance Summary"
+    fi
+}
+
+# Enhanced explain plan generation with proper database/schema context
+generate_explain_plan() {
+    local sql="$1"
+    local target_db="$2"
+    local target_schema="$3"
+    
+    echo "Generating explain plan..."
+    echo "Target Database: $target_db"
+    if [[ -n "$target_schema" ]]; then
+        echo "Target Schema: $target_schema"
+    fi
+    
+    # Build connection command for target database
+    local explain_cmd="$NZSQL_PATH"
+    if [[ -n "$NETEZZA_HOST" ]]; then
+        explain_cmd="$explain_cmd -host ${NETEZZA_HOST}"
+    fi
+    explain_cmd="$explain_cmd -d ${target_db} -u ${NETEZZA_USER}"
+    
+    # Prepare SQL with schema context if provided
+    local full_sql="$sql"
+    if [[ -n "$target_schema" ]]; then
+        full_sql="SET SCHEMA '$target_schema'; $sql"
+    fi
+    
+    echo ""
+    echo "Method 1: Direct EXPLAIN with database context"
+    echo "=============================================================="
+    if $explain_cmd -c "EXPLAIN VERBOSE $full_sql" 2>/dev/null; then
+        print_success "Explain plan generated successfully using direct method"
+    else
+        print_warning "Direct EXPLAIN failed, trying alternative approach..."
+        echo ""
+        echo "Method 2: Basic EXPLAIN without VERBOSE"
+        echo "=============================================================="
+        if $explain_cmd -c "EXPLAIN $full_sql" 2>/dev/null; then
+            print_success "Basic explain plan generated"
+        else
+            print_error "Both EXPLAIN methods failed"
+            echo ""
+            echo "Possible issues:"
+            echo "1. SQL syntax errors"
+            echo "2. Missing tables or insufficient permissions"
+            echo "3. Database/schema context issues"
+            echo "4. Connection problems to target database"
+            echo ""
+            echo "Try manually:"
+            echo "$explain_cmd -c \"EXPLAIN $full_sql\""
+        fi
     fi
 }
 
