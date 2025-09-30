@@ -543,11 +543,809 @@ check_os_performance() {
 # Session and SQL Monitoring
 #=============================================================================
 
+check_locks_and_blocking() {
+    print_header "LOCK ANALYSIS AND BLOCKING SESSIONS"
+    
+    # First check system lock views
+    print_section "System Lock Information"
+    execute_safe_sql "_V_LOCK" "
+    SELECT 
+        LOCKTYPE,
+        LOCKMODE,
+        COUNT(*) AS LOCK_COUNT
+    FROM _V_LOCK
+    GROUP BY LOCKTYPE, LOCKMODE
+    ORDER BY LOCK_COUNT DESC;" "Lock Summary by Type"
+    
+    execute_safe_sql "_V_LOCK" "
+    SELECT 
+        SESSIONID,
+        LOCKTYPE,
+        LOCKMODE,
+        OBJNAME,
+        LOCKTIME
+    FROM _V_LOCK
+    WHERE LOCKMODE != 'AccessShareLock'
+    ORDER BY LOCKTIME DESC
+    LIMIT 20;" "Active Non-Share Locks"
+    
+    # Use nz_show_locks utility
+    print_section "Detailed Lock Analysis using nz_show_locks"
+    
+    # Check if nz_show_locks utility is available
+    local nz_show_locks_path="/nz/bin/nz_show_locks"
+    local alt_paths=(
+        "/opt/nz/bin/nz_show_locks"
+        "/usr/local/nz/bin/nz_show_locks"
+        "/nz/support/bin/nz_show_locks"
+        "/nz/kit/bin/nz_show_locks"
+    )
+    
+    local found_nz_show_locks=""
+    
+    if [[ -f "$nz_show_locks_path" && -x "$nz_show_locks_path" ]]; then
+        found_nz_show_locks="$nz_show_locks_path"
+    else
+        for path in "${alt_paths[@]}"; do
+            if [[ -f "$path" && -x "$path" ]]; then
+                found_nz_show_locks="$path"
+                break
+            fi
+        done
+    fi
+    
+    if [[ -n "$found_nz_show_locks" ]]; then
+        print_success "Using nz_show_locks at: $found_nz_show_locks"
+        
+        # Create output file for locks
+        local locks_file="/tmp/netezza_locks_$(date +%Y%m%d_%H%M%S).txt"
+        
+        echo "Executing nz_show_locks..."
+        if [[ -n "$NETEZZA_HOST" ]]; then
+            # For remote connections
+            if "$found_nz_show_locks" -host "$NETEZZA_HOST" > "$locks_file" 2>&1; then
+                print_success "Lock analysis completed successfully!"
+                
+                # Display results
+                if [[ -s "$locks_file" ]]; then
+                    echo ""
+                    echo "Lock Analysis Results:"
+                    echo "=============================================================="
+                    cat "$locks_file"
+                    echo "=============================================================="
+                    
+                    # Check for blocking situations
+                    if grep -q -i "blocked\|waiting\|exclusive" "$locks_file"; then
+                        print_warning "Potential blocking detected in lock analysis!"
+                    else
+                        print_success "No obvious blocking situations detected"
+                    fi
+                else
+                    print_warning "No lock information returned"
+                fi
+                
+                echo ""
+                echo "Full lock report saved to: $locks_file"
+            else
+                print_error "Failed to execute nz_show_locks"
+                echo "Error output:"
+                cat "$locks_file"
+                rm -f "$locks_file"
+            fi
+        else
+            # For local connections
+            if "$found_nz_show_locks" > "$locks_file" 2>&1; then
+                print_success "Lock analysis completed successfully!"
+                
+                # Display results
+                if [[ -s "$locks_file" ]]; then
+                    echo ""
+                    echo "Lock Analysis Results:"
+                    echo "=============================================================="
+                    cat "$locks_file"
+                    echo "=============================================================="
+                    
+                    # Check for blocking situations
+                    if grep -q -i "blocked\|waiting\|exclusive" "$locks_file"; then
+                        print_warning "Potential blocking detected in lock analysis!"
+                    else
+                        print_success "No obvious blocking situations detected"
+                    fi
+                else
+                    print_warning "No lock information returned"
+                fi
+                
+                echo ""
+                echo "Full lock report saved to: $locks_file"
+            else
+                print_error "Failed to execute nz_show_locks"
+                echo "Error output:"
+                cat "$locks_file"
+                rm -f "$locks_file"
+            fi
+        fi
+    else
+        print_warning "nz_show_locks utility not found in standard locations."
+        echo ""
+        echo "Standard locations checked:"
+        echo "  - /nz/bin/nz_show_locks"
+        echo "  - /opt/nz/bin/nz_show_locks"
+        echo "  - /usr/local/nz/bin/nz_show_locks"
+        echo "  - /nz/support/bin/nz_show_locks"
+        echo "  - /nz/kit/bin/nz_show_locks"
+        echo ""
+        read -p "Enter full path to nz_show_locks utility (or press Enter to skip): " custom_path
+        
+        if [[ -n "$custom_path" && -f "$custom_path" && -x "$custom_path" ]]; then
+            print_success "Using custom nz_show_locks at: $custom_path"
+            
+            local locks_file="/tmp/netezza_locks_$(date +%Y%m%d_%H%M%S).txt"
+            
+            if [[ -n "$NETEZZA_HOST" ]]; then
+                "$custom_path" -host "$NETEZZA_HOST" > "$locks_file" 2>&1
+            else
+                "$custom_path" > "$locks_file" 2>&1
+            fi
+            
+            if [[ $? -eq 0 && -s "$locks_file" ]]; then
+                echo ""
+                echo "Lock Analysis Results:"
+                echo "=============================================================="
+                cat "$locks_file"
+                echo "=============================================================="
+                echo ""
+                echo "Full report saved to: $locks_file"
+            else
+                print_error "Failed to execute custom nz_show_locks"
+                rm -f "$locks_file"
+            fi
+        else
+            print_warning "Skipping nz_show_locks analysis - utility not available"
+        fi
+    fi
+    
+    # Additional blocking session analysis
+    print_section "Blocking Session Analysis"
+    local blocking_result_file="/tmp/netezza_blocking_$(date +%Y%m%d_%H%M%S).txt"
+    
+    # Store blocking query results in a file for later processing
+    $NZSQL_CMD -c "
+    SELECT DISTINCT
+        l1.SESSIONID as BLOCKING_SESSION,
+        l2.SESSIONID as BLOCKED_SESSION,
+        l1.LOCKTYPE,
+        l1.OBJNAME,
+        s1.USERNAME as BLOCKING_USER,
+        s2.USERNAME as BLOCKED_USER,
+        s1.COMMAND as BLOCKING_COMMAND,
+        s2.COMMAND as BLOCKED_COMMAND
+    FROM _V_LOCK l1
+    JOIN _V_LOCK l2 ON l1.OBJNAME = l2.OBJNAME AND l1.SESSIONID != l2.SESSIONID
+    LEFT JOIN _V_SESSION s1 ON l1.SESSIONID = s1.ID
+    LEFT JOIN _V_SESSION s2 ON l2.SESSIONID = s2.ID
+    WHERE l1.LOCKMODE IN ('ExclusiveLock', 'AccessExclusiveLock')
+    AND l2.LOCKMODE IN ('ExclusiveLock', 'AccessExclusiveLock', 'ShareLock')
+    ORDER BY l1.OBJNAME;" > "$blocking_result_file" 2>/dev/null
+    
+    if [[ -s "$blocking_result_file" ]]; then
+        echo "Potential Blocking Relationships:"
+        echo "=============================================================="
+        cat "$blocking_result_file" 
+        echo "=============================================================="
+        
+        # Check if there are actual blocking relationships (not just headers)
+        local blocking_count=$(grep -c "^[[:space:]]*[0-9]" "$blocking_result_file" 2>/dev/null || echo "0")
+        
+        if [[ "$blocking_count" -gt 0 ]]; then
+            print_warning "$blocking_count potential blocking relationships detected!"
+            echo ""
+            
+            # Offer session management options
+            print_section "Session Management Options"
+            echo "What would you like to do?"
+            echo "1. View detailed session information"
+            echo "2. Terminate blocking sessions (CAUTION!)"
+            echo "3. Continue without action"
+            echo ""
+            
+            read -p "Choose an option (1-3): " blocking_action
+            
+            case $blocking_action in
+                1)
+                    show_detailed_blocking_sessions "$blocking_result_file"
+                    ;;
+                2)
+                    terminate_blocking_sessions "$blocking_result_file"
+                    ;;
+                3)
+                    print_success "Continuing without action"
+                    ;;
+                *)
+                    print_warning "Invalid option selected"
+                    ;;
+            esac
+        else
+            print_success "No active blocking relationships detected"
+        fi
+    else
+        print_success "No blocking relationships found"
+    fi
+    
+    rm -f "$blocking_result_file"
+}
+
+# Show detailed information about blocking sessions
+show_detailed_blocking_sessions() {
+    local blocking_file="$1"
+    
+    print_section "Detailed Blocking Session Information"
+    
+    # Extract unique blocking session IDs
+    local blocking_sessions=($(grep "^[[:space:]]*[0-9]" "$blocking_file" 2>/dev/null | awk '{print $1}' | sort -u))
+    
+    if [[ ${#blocking_sessions[@]} -eq 0 ]]; then
+        print_warning "No blocking sessions to analyze"
+        return
+    fi
+    
+    for session_id in "${blocking_sessions[@]}"; do
+        if [[ -n "$session_id" && "$session_id" =~ ^[0-9]+$ ]]; then
+            echo ""
+            echo "=== Blocking Session ID: $session_id ==="
+            
+            # Get detailed session information
+            execute_sql "
+            SELECT 
+                ID,
+                USERNAME,
+                DBNAME,
+                STATUS,
+                IPADDR,
+                CONNTIME,
+                PRIORITY,
+                COMMAND,
+                CLIENT_OS_USERNAME
+            FROM _V_SESSION
+            WHERE ID = ${session_id};" "Session ${session_id} Details" true
+            
+            # Get recent SQL for this session
+            echo ""
+            echo "Recent SQL for Session $session_id:"
+            execute_sql "
+            SELECT 
+                QH_TSUBMIT,
+                QH_TSTART,
+                QH_TEND,
+                SUBSTR(QH_SQL, 1, 200) AS SQL_PREVIEW
+            FROM _V_QRYHIST
+            WHERE QH_SESSIONID = ${session_id}
+            ORDER BY QH_TSUBMIT DESC
+            LIMIT 3;" "Recent SQL for Session ${session_id}" true
+            
+            echo "----------------------------------------"
+        fi
+    done
+    
+    echo ""
+    read -p "Press Enter to continue..."
+}
+
+# Terminate blocking sessions with safety checks
+terminate_blocking_sessions() {
+    local blocking_file="$1"
+    
+    print_section "Session Termination (CAUTION!)"
+    print_warning "WARNING: Terminating sessions will forcefully disconnect users and rollback their transactions!"
+    print_warning "This action cannot be undone and may cause data loss if transactions are in progress."
+    
+    echo ""
+    echo "Please review the blocking sessions before proceeding:"
+    cat "$blocking_file"
+    echo ""
+    
+    # Extract unique blocking session IDs
+    local blocking_sessions=($(grep "^[[:space:]]*[0-9]" "$blocking_file" 2>/dev/null | awk '{print $1}' | sort -u))
+    
+    if [[ ${#blocking_sessions[@]} -eq 0 ]]; then
+        print_warning "No blocking sessions found to terminate"
+        return
+    fi
+    
+    echo "Blocking sessions that would be terminated: ${blocking_sessions[*]}"
+    echo ""
+    
+    # Safety confirmation
+    read -p "Are you absolutely sure you want to terminate these sessions? (yes/no): " confirm1
+    if [[ "$confirm1" != "yes" ]]; then
+        print_success "Session termination cancelled"
+        return
+    fi
+    
+    read -p "Type 'TERMINATE' to confirm session termination: " confirm2
+    if [[ "$confirm2" != "TERMINATE" ]]; then
+        print_success "Session termination cancelled"
+        return
+    fi
+    
+    # Check for nzkill utility
+    local nzkill_path="/nz/bin/nzkill"
+    local alt_nzkill_paths=(
+        "/opt/nz/bin/nzkill"
+        "/usr/local/nz/bin/nzkill"
+        "/nz/support/bin/nzkill"
+        "/nz/kit/bin/nzkill"
+    )
+    
+    local found_nzkill=""
+    
+    if [[ -f "$nzkill_path" && -x "$nzkill_path" ]]; then
+        found_nzkill="$nzkill_path"
+    else
+        for path in "${alt_nzkill_paths[@]}"; do
+            if [[ -f "$path" && -x "$path" ]]; then
+                found_nzkill="$path"
+                break
+            fi
+        done
+    fi
+    
+    print_section "Terminating Blocking Sessions"
+    
+    local terminated_count=0
+    local failed_count=0
+    
+    for session_id in "${blocking_sessions[@]}"; do
+        if [[ -n "$session_id" && "$session_id" =~ ^[0-9]+$ ]]; then
+            echo "Terminating session $session_id..."
+            
+            local success=false
+            
+            # Method 1: Try using nzkill utility
+            if [[ -n "$found_nzkill" ]]; then
+                if [[ -n "$NETEZZA_HOST" ]]; then
+                    if "$found_nzkill" -host "$NETEZZA_HOST" -id "$session_id" >/dev/null 2>&1; then
+                        success=true
+                    fi
+                else
+                    if "$found_nzkill" -id "$session_id" >/dev/null 2>&1; then
+                        success=true
+                    fi
+                fi
+            fi
+            
+            # Method 2: Try using SQL command if nzkill failed
+            if [[ "$success" = false ]]; then
+                if execute_sql "ABORT SESSION $session_id;" "Abort Session $session_id" false; then
+                    success=true
+                fi
+            fi
+            
+            # Method 3: Try alternative SQL syntax
+            if [[ "$success" = false ]]; then
+                if execute_sql "SELECT ABORT_SESSION($session_id);" "Abort Session $session_id (Alt)" false; then
+                    success=true
+                fi
+            fi
+            
+            if [[ "$success" = true ]]; then
+                print_success "✓ Session $session_id terminated successfully"
+                terminated_count=$((terminated_count + 1))
+            else
+                print_error "✗ Failed to terminate session $session_id"
+                failed_count=$((failed_count + 1))
+            fi
+        fi
+    done
+    
+    echo ""
+    print_section "Termination Summary"
+    echo "Sessions successfully terminated: $terminated_count"
+    echo "Sessions failed to terminate: $failed_count"
+    
+    if [[ "$terminated_count" -gt 0 ]]; then
+        print_success "Successfully terminated $terminated_count blocking sessions"
+        
+        # Wait a moment for cleanup
+        echo "Waiting 5 seconds for system cleanup..."
+        sleep 5
+        
+        # Check if blocking is resolved
+        echo ""
+        echo "Checking if blocking has been resolved..."
+        local recheck_file="/tmp/netezza_recheck_$(date +%Y%m%d_%H%M%S).txt"
+        
+        $NZSQL_CMD -c "
+        SELECT DISTINCT
+            l1.SESSIONID as BLOCKING_SESSION,
+            l2.SESSIONID as BLOCKED_SESSION,
+            l1.LOCKTYPE,
+            l1.OBJNAME
+        FROM _V_LOCK l1
+        JOIN _V_LOCK l2 ON l1.OBJNAME = l2.OBJNAME AND l1.SESSIONID != l2.SESSIONID
+        WHERE l1.LOCKMODE IN ('ExclusiveLock', 'AccessExclusiveLock')
+        AND l2.LOCKMODE IN ('ExclusiveLock', 'AccessExclusiveLock', 'ShareLock');" > "$recheck_file" 2>/dev/null
+        
+        local remaining_blocks=$(grep -c "^[[:space:]]*[0-9]" "$recheck_file" 2>/dev/null || echo "0")
+        
+        if [[ "$remaining_blocks" -eq 0 ]]; then
+            print_success "✓ All blocking relationships have been resolved!"
+        else
+            print_warning "⚠ $remaining_blocks blocking relationships still remain"
+            echo "Remaining blocks:"
+            cat "$recheck_file"
+        fi
+        
+        rm -f "$recheck_file"
+    fi
+    
+    if [[ "$failed_count" -gt 0 ]]; then
+        print_warning "Some sessions could not be terminated automatically"
+        echo ""
+        echo "Manual termination options:"
+        echo "1. Use nzadmin command: nzadmin -c 'kill session <session_id>'"
+        echo "2. Contact system administrator for manual intervention"
+        echo "3. Check if sessions are system processes that cannot be terminated"
+    fi
+    
+    echo ""
+    read -p "Press Enter to continue..."
+}
+
+# Intelligent nzsession analysis with multiple options
+intelligent_nzsession_analysis() {
+    local nzsession_cmd="$1"
+    
+    # First, get session count to determine analysis strategy
+    local session_count_file="/tmp/netezza_session_count_$(date +%Y%m%d_%H%M%S).txt"
+    
+    echo "Determining optimal analysis strategy..."
+    
+    # Get basic session information first
+    if [[ -n "$NETEZZA_HOST" ]]; then
+        "$nzsession_cmd" -host "$NETEZZA_HOST" > "$session_count_file" 2>&1
+    else
+        "$nzsession_cmd" > "$session_count_file" 2>&1
+    fi
+    
+    local total_sessions=0
+    if [[ -f "$session_count_file" ]]; then
+        total_sessions=$(wc -l < "$session_count_file" 2>/dev/null || echo "0")
+        total_sessions=$((total_sessions - 1))  # Subtract header line
+    fi
+    
+    echo "Total sessions detected: $total_sessions"
+    
+    # Determine if this is a heavy workload environment
+    local is_heavy_workload=false
+    if [[ "$total_sessions" -gt 50 ]]; then
+        is_heavy_workload=true
+        print_warning "Heavy workload detected ($total_sessions sessions) - using focused analysis"
+    else
+        print_success "Standard workload detected - using comprehensive analysis"
+    fi
+    
+    # Analysis strategy based on workload
+    if [[ "$is_heavy_workload" = true ]]; then
+        # Heavy workload - focus on problem sessions
+        print_section "Heavy Workload Analysis Strategy"
+        
+        # Focus on long-running sessions
+        echo "1. Analyzing long-running sessions..."
+        local longrun_file="/tmp/netezza_longrun_$(date +%Y%m%d_%H%M%S).txt"
+        if [[ -n "$NETEZZA_HOST" ]]; then
+            "$nzsession_cmd" -host "$NETEZZA_HOST" -longrun > "$longrun_file" 2>&1
+        else
+            "$nzsession_cmd" -longrun > "$longrun_file" 2>&1
+        fi
+        
+        if [[ -s "$longrun_file" ]]; then
+            echo "Long-running sessions found:"
+            echo "------------------------------------------------------------"
+            cat "$longrun_file"
+            echo "------------------------------------------------------------"
+        else
+            print_success "No long-running sessions detected"
+        fi
+        
+        # Focus on blocked sessions
+        echo ""
+        echo "2. Analyzing blocked sessions..."
+        local blocked_file="/tmp/netezza_blocked_$(date +%Y%m%d_%H%M%S).txt"
+        if [[ -n "$NETEZZA_HOST" ]]; then
+            "$nzsession_cmd" -host "$NETEZZA_HOST" -blocked > "$blocked_file" 2>&1
+        else
+            "$nzsession_cmd" -blocked > "$blocked_file" 2>&1
+        fi
+        
+        if [[ -s "$blocked_file" ]]; then
+            print_warning "Blocked sessions detected!"
+            echo "------------------------------------------------------------"
+            cat "$blocked_file"
+            echo "------------------------------------------------------------"
+        else
+            print_success "No blocked sessions detected"
+        fi
+        
+        # Analyze by specific schemas if available
+        echo ""
+        echo "3. Schema-specific analysis for heavy schemas..."
+        analyze_heavy_schemas "$nzsession_cmd"
+        
+    else
+        # Standard workload - comprehensive analysis
+        print_section "Comprehensive Analysis Strategy"
+        
+        # Display all sessions with details
+        echo "1. All active sessions:"
+        echo "------------------------------------------------------------"
+        cat "$session_count_file"
+        echo "------------------------------------------------------------"
+        
+        # Check for idle sessions
+        echo ""
+        echo "2. Analyzing idle sessions..."
+        local idle_file="/tmp/netezza_idle_$(date +%Y%m%d_%H%M%S).txt"
+        if [[ -n "$NETEZZA_HOST" ]]; then
+            "$nzsession_cmd" -host "$NETEZZA_HOST" -idle > "$idle_file" 2>&1
+        else
+            "$nzsession_cmd" -idle > "$idle_file" 2>&1
+        fi
+        
+        if [[ -s "$idle_file" ]]; then
+            local idle_count=$(wc -l < "$idle_file" 2>/dev/null || echo "0")
+            idle_count=$((idle_count - 1))
+            if [[ "$idle_count" -gt 0 ]]; then
+                print_warning "$idle_count idle sessions found"
+                echo "Consider reviewing these for cleanup:"
+                echo "------------------------------------------------------------"
+                head -20 "$idle_file"  # Show first 20 to avoid overwhelming output
+                echo "------------------------------------------------------------"
+            fi
+        else
+            print_success "No idle sessions detected"
+        fi
+        
+        # Check for system sessions
+        echo ""
+        echo "3. System sessions analysis..."
+        local system_file="/tmp/netezza_system_$(date +%Y%m%d_%H%M%S).txt"
+        if [[ -n "$NETEZZA_HOST" ]]; then
+            "$nzsession_cmd" -host "$NETEZZA_HOST" -system > "$system_file" 2>&1
+        else
+            "$nzsession_cmd" -system > "$system_file" 2>&1
+        fi
+        
+        if [[ -s "$system_file" ]]; then
+            local sys_count=$(wc -l < "$system_file" 2>/dev/null || echo "0")
+            sys_count=$((sys_count - 1))
+            echo "System sessions: $sys_count"
+        fi
+    fi
+    
+    # Common analyses for both strategies
+    print_section "Session Summary Analysis"
+    
+    # Parse session information for insights
+    if [[ -s "$session_count_file" ]]; then
+        echo "Session Analysis Summary:"
+        echo "========================"
+        
+        # Count sessions by user (if available in output)
+        echo "Top users by session count:"
+        grep -v "^Session\|^---\|^$" "$session_count_file" 2>/dev/null | \
+        awk '{print $3}' | sort | uniq -c | sort -rn | head -10 2>/dev/null || echo "Unable to parse user information"
+        
+        echo ""
+        echo "Session status distribution:"
+        grep -v "^Session\|^---\|^$" "$session_count_file" 2>/dev/null | \
+        awk '{print $4}' | sort | uniq -c | sort -rn 2>/dev/null || echo "Unable to parse status information"
+    fi
+    
+    # Cleanup temporary files
+    rm -f "$session_count_file" "$longrun_file" "$blocked_file" "$idle_file" "$system_file" 2>/dev/null
+}
+
+# Analyze sessions for heavy schemas
+analyze_heavy_schemas() {
+    local nzsession_cmd="$1"
+    
+    # Get schema list from system views first
+    local heavy_schemas=()
+    
+    # Try to identify heavy schemas from recent query activity
+    local schema_query="
+    SELECT 
+        QH_DATABASE,
+        COUNT(*) as QUERY_COUNT
+    FROM _V_QRYHIST
+    WHERE QH_TEND > NOW() - INTERVAL '1 HOUR'
+    GROUP BY QH_DATABASE
+    HAVING COUNT(*) > 10
+    ORDER BY QUERY_COUNT DESC
+    LIMIT 5"
+    
+    echo "Identifying heavy schemas from recent activity..."
+    
+    # Execute query to find heavy schemas
+    local temp_schemas_file="/tmp/heavy_schemas_$(date +%Y%m%d_%H%M%S).txt"
+    if execute_sql "$schema_query" "Heavy Schema Detection" false > "$temp_schemas_file" 2>&1; then
+        # Parse the results to get schema names
+        while IFS= read -r line; do
+            if [[ "$line" =~ ^[[:space:]]*([A-Za-z0-9_]+)[[:space:]]+ ]]; then
+                schema_name="${BASH_REMATCH[1]}"
+                if [[ "$schema_name" != "QH_DATABASE" && "$schema_name" != "QUERY_COUNT" ]]; then
+                    heavy_schemas+=("$schema_name")
+                fi
+            fi
+        done < "$temp_schemas_file"
+    fi
+    
+    # If no heavy schemas found, use common ones
+    if [[ ${#heavy_schemas[@]} -eq 0 ]]; then
+        heavy_schemas=("SYSTEM" "PRODUCTION" "ANALYTICS" "DW" "STAGING")
+        echo "Using common schema names for analysis..."
+    else
+        echo "Analyzing schemas with high activity: ${heavy_schemas[*]}"
+    fi
+    
+    # Analyze sessions for each heavy schema
+    for schema in "${heavy_schemas[@]}"; do
+        if [[ -n "$schema" ]]; then
+            echo ""
+            echo "Analyzing sessions for schema: $schema"
+            echo "----------------------------------------"
+            
+            local schema_file="/tmp/netezza_schema_${schema}_$(date +%Y%m%d_%H%M%S).txt"
+            
+            # Use nzsession to get sessions for specific database/schema
+            if [[ -n "$NETEZZA_HOST" ]]; then
+                "$nzsession_cmd" -host "$NETEZZA_HOST" -db "$schema" > "$schema_file" 2>&1
+            else
+                "$nzsession_cmd" -db "$schema" > "$schema_file" 2>&1
+            fi
+            
+            if [[ -s "$schema_file" ]]; then
+                local schema_session_count=$(wc -l < "$schema_file" 2>/dev/null || echo "0")
+                schema_session_count=$((schema_session_count - 1))
+                
+                if [[ "$schema_session_count" -gt 0 ]]; then
+                    echo "Active sessions in $schema: $schema_session_count"
+                    if [[ "$schema_session_count" -gt 10 ]]; then
+                        print_warning "High session count in $schema - showing top 10:"
+                        head -11 "$schema_file" | tail -10
+                    else
+                        cat "$schema_file"
+                    fi
+                else
+                    echo "No active sessions in $schema"
+                fi
+            else
+                echo "Unable to retrieve session information for $schema"
+            fi
+            
+            rm -f "$schema_file"
+        fi
+    done
+    
+    rm -f "$temp_schemas_file"
+}
+
 check_active_sessions() {
     print_header "ACTIVE SESSIONS AND SQL ANALYSIS"
     
+    # Use nzsession utility for enhanced session analysis
+    print_section "Enhanced Session Analysis using nzsession"
+    
+    # Check if nzsession utility is available
+    local nzsession_path="/nz/bin/nzsession"
+    local alt_paths=(
+        "/opt/nz/bin/nzsession"
+        "/usr/local/nz/bin/nzsession"
+        "/nz/support/bin/nzsession"
+        "/nz/kit/bin/nzsession"
+    )
+    
+    local found_nzsession=""
+    
+    if [[ -f "$nzsession_path" && -x "$nzsession_path" ]]; then
+        found_nzsession="$nzsession_path"
+    else
+        for path in "${alt_paths[@]}"; do
+            if [[ -f "$path" && -x "$path" ]]; then
+                found_nzsession="$path"
+                break
+            fi
+        done
+    fi
+    
+    if [[ -n "$found_nzsession" ]]; then
+        print_success "Using nzsession at: $found_nzsession"
+        
+        # Active transactions analysis
+        print_section "Active Transactions Analysis"
+        local activetxn_file="/tmp/netezza_activetxn_$(date +%Y%m%d_%H%M%S).txt"
+        
+        echo "Analyzing active transactions..."
+        if [[ -n "$NETEZZA_HOST" ]]; then
+            if "$found_nzsession" -host "$NETEZZA_HOST" -activetxn > "$activetxn_file" 2>&1; then
+                if [[ -s "$activetxn_file" ]]; then
+                    print_success "Active transactions found!"
+                    echo ""
+                    echo "Active Transactions Report:"
+                    echo "=============================================================="
+                    cat "$activetxn_file"
+                    echo "=============================================================="
+                    
+                    # Analyze transaction patterns
+                    local long_txn_count=$(grep -c "Duration:" "$activetxn_file" 2>/dev/null || echo "0")
+                    if [[ "$long_txn_count" -gt 0 ]]; then
+                        print_warning "$long_txn_count active transactions detected"
+                    else
+                        print_success "No long-running transactions detected"
+                    fi
+                else
+                    print_success "No active transactions currently running"
+                fi
+                echo "Full report saved to: $activetxn_file"
+            else
+                print_error "Failed to get active transactions"
+                cat "$activetxn_file"
+                rm -f "$activetxn_file"
+            fi
+        else
+            if "$found_nzsession" -activetxn > "$activetxn_file" 2>&1; then
+                if [[ -s "$activetxn_file" ]]; then
+                    print_success "Active transactions found!"
+                    echo ""
+                    echo "Active Transactions Report:"
+                    echo "=============================================================="
+                    cat "$activetxn_file"
+                    echo "=============================================================="
+                    
+                    # Analyze transaction patterns
+                    local long_txn_count=$(grep -c "Duration:" "$activetxn_file" 2>/dev/null || echo "0")
+                    if [[ "$long_txn_count" -gt 0 ]]; then
+                        print_warning "$long_txn_count active transactions detected"
+                    else
+                        print_success "No long-running transactions detected"
+                    fi
+                else
+                    print_success "No active transactions currently running"
+                fi
+                echo "Full report saved to: $activetxn_file"
+            else
+                print_error "Failed to get active transactions"
+                cat "$activetxn_file"
+                rm -f "$activetxn_file"
+            fi
+        fi
+        
+        # Comprehensive session analysis
+        print_section "Comprehensive Session Analysis"
+        intelligent_nzsession_analysis "$found_nzsession"
+        
+    else
+        print_warning "nzsession utility not found in standard locations."
+        echo ""
+        echo "Standard locations checked:"
+        echo "  - /nz/bin/nzsession"
+        echo "  - /opt/nz/bin/nzsession"
+        echo "  - /usr/local/nz/bin/nzsession"
+        echo "  - /nz/support/bin/nzsession"
+        echo "  - /nz/kit/bin/nzsession"
+        echo ""
+        read -p "Enter full path to nzsession utility (or press Enter to skip): " custom_path
+        
+        if [[ -n "$custom_path" && -f "$custom_path" && -x "$custom_path" ]]; then
+            print_success "Using custom nzsession at: $custom_path"
+            intelligent_nzsession_analysis "$custom_path"
+        else
+            print_warning "Skipping enhanced session analysis - using basic system views"
+        fi
+    fi
+    
     # Active Sessions using correct column names
-    print_section "Current Sessions Analysis"
+    print_section "Current Sessions Analysis (System Views)"
     
     execute_sql "
     SELECT 
@@ -1218,12 +2016,13 @@ show_main_menu() {
     echo "2. Netezza System State Analysis"
     echo "3. Linux OS Performance Monitoring"
     echo "4. Active Sessions and SQL Analysis"
-    echo "5. Query Performance Analysis"
-    echo "6. Interactive SQL Explain Plan Analysis"
-    echo "7. Run Complete System Check (Options 2-5)"
-    echo "8. Configuration Settings"
-    echo "9. View Log File"
-    echo "10. Exit"
+    echo "5. Lock Analysis and Blocking Sessions"
+    echo "6. Query Performance Analysis"
+    echo "7. Interactive SQL Explain Plan Analysis"
+    echo "8. Run Complete System Check (Options 2-6)"
+    echo "9. Configuration Settings"
+    echo "10. View Log File"
+    echo "11. Exit"
     echo ""
     echo -e "${YELLOW}Current Settings:${NC}"
     echo "  - Host: ${NETEZZA_HOST:-'(local connection)'}"
@@ -1320,7 +2119,7 @@ view_log_file() {
 
 run_complete_check() {
     print_header "COMPLETE SYSTEM CHECK STARTING"
-    echo "This will run all system checks (options 2-5). This may take several minutes..."
+    echo "This will run all system checks (options 2-6). This may take several minutes..."
     echo ""
     read -p "Continue? (y/n): " confirm
     
@@ -1331,6 +2130,7 @@ run_complete_check() {
     check_netezza_system_state
     check_os_performance
     check_active_sessions
+    check_locks_and_blocking
     check_query_performance
     
     print_header "COMPLETE SYSTEM CHECK FINISHED"
@@ -1406,7 +2206,7 @@ main() {
     # Main program loop
     while true; do
         show_main_menu
-        read -p "Choose an option (1-9): " choice
+        read -p "Choose an option (1-11): " choice
         
         case $choice in
             1)
@@ -1426,27 +2226,31 @@ main() {
                 read -p "Press Enter to continue..."
                 ;;
             5)
-                check_query_performance
+                check_locks_and_blocking
                 read -p "Press Enter to continue..."
                 ;;
             6)
-                interactive_explain_plan
+                check_query_performance
+                read -p "Press Enter to continue..."
                 ;;
             7)
-                run_complete_check
+                interactive_explain_plan
                 ;;
             8)
-                configure_settings
+                run_complete_check
                 ;;
             9)
-                view_log_file
+                configure_settings
                 ;;
             10)
+                view_log_file
+                ;;
+            11)
                 print_success "Thank you for using Netezza Performance Automation Tool!"
                 exit 0
                 ;;
             *)
-                print_error "Invalid option. Please choose 1-10."
+                print_error "Invalid option. Please choose 1-11."
                 read -p "Press Enter to continue..."
                 ;;
         esac
