@@ -1,10 +1,10 @@
 #!/bin/bash
 
 #=============================================================================
-# Netezza Performance Automation Tool
+# Netezza Performance Assist Tool
 # Version: 1.0
 # Date: September 29, 2025
-# Description: Automated system checks for Netezza 11.2.1.13
+# Description: Interactive Assist for Netezza 11.2.1.13
 # Author: Love Malhotra
 #=============================================================================
 
