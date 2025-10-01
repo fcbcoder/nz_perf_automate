@@ -5,7 +5,7 @@
 # Version: 1.0
 # Date: September 29, 2025
 # Description: Automated system checks for Netezza 11.2.1.13
-# Author: Database Administrator
+# Author: Love Malhotra
 #=============================================================================
 
 # Configuration Variables
@@ -2009,6 +2009,7 @@ show_main_menu() {
     echo -e "${GREEN}╔══════════════════════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║                    NETEZZA PERFORMANCE AUTOMATION TOOL                      ║${NC}"
     echo -e "${GREEN}║                              Version 1.0                                    ║${NC}"
+    echo -e "${GREEN}║                    Author: Love Malhotra                                    ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "${CYAN}Main Options:${NC}"
