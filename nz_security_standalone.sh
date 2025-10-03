@@ -1,8 +1,8 @@
 #!/bin/bash
 
 #=============================================================================
-# Netezza Security and Permissions Analysis Tool - Standalone Version
-# Version: 1.1
+# Netezza Security and Permissions Analysis Tool - Updated for Actual Schema
+# Version: 1.2
 # Date: October 3, 2025
 # Description: Interactive security audit and permission analysis for Netezza
 # Author: Database Administrator
@@ -206,7 +206,7 @@ view_log_file() {
 }
 
 #=============================================================================
-# Security Analysis Functions
+# Security Analysis Functions - Updated for Correct Schema
 #=============================================================================
 
 discover_security_views() {
@@ -214,12 +214,11 @@ discover_security_views() {
     
     print_section "Discovering Security-Related System Views"
     
-    # Test security-related views
+    # Test security-related views based on your actual system
     local security_views=(
-        "_V_USER" "_V_ROLE" "_V_USER_ROLE" "_V_PRIVILEGE" "_V_OBJECT_PRIVILEGE"
-        "_V_AUTHENTICATION" "_V_AUTHENTICATION_SETTINGS" "_V_GROUP" "_V_USER_GROUP"
-        "_V_SCHEMA_PRIVILEGE" "_V_TABLE_PRIVILEGE" "_V_DATABASE_PRIVILEGE"
-        "_V_ACL" "_V_ACL_DATA" "_V_SECURITY_LEVEL" "_V_SECURITY_CATEGORY"
+        "_V_USER" "_V_ROLE" "_V_GROUP" "_V_AUTHENTICATION" "_V_AUTHENTICATION_SETTINGS"
+        "_V_ACL_DATA" "_V_SECURITY_LEVEL" "_V_SECURITY_CATEGORY"
+        "_V_SESSION" "_V_DATABASE" "_V_SCHEMA" "_V_TABLE" "_V_VIEW"
     )
     
     local available_security_views=()
@@ -245,21 +244,11 @@ discover_security_views() {
     echo ""
     print_section "Column Structure Analysis"
     
-    # Check column structures for available views
+    # Check column structures for key views
     for view in "${available_security_views[@]}"; do
         echo ""
-        echo -e "${CYAN}Analyzing $view:${NC}"
+        echo -e "${CYAN}Columns in $view:${NC}"
         execute_sql "SELECT * FROM $view LIMIT 0;" "Column Structure for $view" true
-    done
-    
-    echo ""
-    print_section "Sample Security Data"
-    
-    # Show sample data from key views
-    for view in "${available_security_views[@]}"; do
-        echo ""
-        echo -e "${YELLOW}Sample from $view:${NC}"
-        execute_sql "SELECT * FROM $view LIMIT 3;" "Sample data from $view" true
     done
     
     echo ""
@@ -270,21 +259,23 @@ analyze_user_permissions() {
     print_security_header "USER PERMISSIONS ANALYSIS"
     
     echo "What would you like to analyze?"
-    echo "1. Specific user permissions"
+    echo "1. Specific user information"
     echo "2. All users summary"
-    echo "3. Users with admin privileges"
-    echo "4. Inactive users analysis"
-    echo "5. Return to security menu"
+    echo "3. Account status analysis"
+    echo "4. User resource group assignments"
+    echo "5. Authentication method analysis"
+    echo "6. Return to security menu"
     echo ""
     
-    read -p "Choose an option (1-5): " choice
+    read -p "Choose an option (1-6): " choice
     
     case $choice in
         1) analyze_specific_user ;;
         2) analyze_all_users_summary ;;
-        3) analyze_admin_users ;;
-        4) analyze_inactive_users ;;
-        5) return ;;
+        3) analyze_account_status ;;
+        4) analyze_user_resource_groups ;;
+        5) analyze_authentication_methods ;;
+        6) return ;;
         *) print_error "Invalid option" ;;
     esac
 }
@@ -302,16 +293,20 @@ analyze_specific_user() {
     
     print_section "User Information for: $username"
     
-    # Basic user information
+    # Basic user information using correct column names
     execute_sql "
     SELECT 
         USERNAME,
-        USERID,
+        OWNER,
         CREATEDATE,
-        USERTYPE,
-        ADMIN_OPTION,
-        RESOURCE_LIMIT,
-        CONNECTION_LIMIT
+        ACCT_LOCKED,
+        PWD_INVALID,
+        PWD_LAST_CHGED,
+        SESSIONTIMEOUT,
+        QUERYTIMEOUT,
+        DEF_PRIORITY,
+        MAX_PRIORITY,
+        USERESOURCEGRPNAME
     FROM _V_USER 
     WHERE UPPER(USERNAME) = '$username';" "User Details" true
     
@@ -332,62 +327,27 @@ analyze_specific_user() {
     
     print_success "User '$username' found in the system"
     
-    # Role memberships
-    print_section "Role Memberships for $username"
-    execute_safe_sql "_V_USER_ROLE" "
-    SELECT 
-        ur.USERNAME,
-        ur.ROLENAME,
-        ur.ADMIN_OPTION
-    FROM _V_USER_ROLE ur
-    WHERE UPPER(ur.USERNAME) = '$username'
-    ORDER BY ur.ROLENAME;" "User Role Memberships"
+    # Check account status
+    print_section "Account Status for $username"
     
-    # Database privileges
-    print_section "Database-Level Privileges for $username"
-    execute_safe_sql "_V_DATABASE_PRIVILEGE" "
-    SELECT 
-        DATABASE,
-        PRIVILEGE,
-        GRANTOR,
-        GRANTEE,
-        ADMIN_OPTION
-    FROM _V_DATABASE_PRIVILEGE
-    WHERE UPPER(GRANTEE) = '$username'
-    ORDER BY DATABASE, PRIVILEGE;" "Database Privileges"
+    acct_locked=$($NZSQL_CMD -t -c "SELECT ACCT_LOCKED FROM _V_USER WHERE UPPER(USERNAME) = '$username';" 2>/dev/null | tr -d ' ')
+    pwd_invalid=$($NZSQL_CMD -t -c "SELECT PWD_INVALID FROM _V_USER WHERE UPPER(USERNAME) = '$username';" 2>/dev/null | tr -d ' ')
     
-    # Schema privileges
-    print_section "Schema-Level Privileges for $username"
-    execute_safe_sql "_V_SCHEMA_PRIVILEGE" "
-    SELECT 
-        SCHEMA,
-        PRIVILEGE,
-        GRANTOR,
-        GRANTEE,
-        ADMIN_OPTION
-    FROM _V_SCHEMA_PRIVILEGE
-    WHERE UPPER(GRANTEE) = '$username'
-    ORDER BY SCHEMA, PRIVILEGE;" "Schema Privileges"
+    if [[ "$acct_locked" == "t" || "$acct_locked" == "true" ]]; then
+        print_warning "⚠️  ACCOUNT IS LOCKED"
+    else
+        print_success "✓ Account is not locked"
+    fi
     
-    # Object privileges
-    print_section "Object-Level Privileges for $username"
-    execute_safe_sql "_V_OBJECT_PRIVILEGE" "
-    SELECT 
-        OBJDB,
-        OBJSCHEMA,
-        OBJNAME,
-        OBJTYPE,
-        PRIVILEGE,
-        GRANTOR,
-        ADMIN_OPTION
-    FROM _V_OBJECT_PRIVILEGE
-    WHERE UPPER(GRANTEE) = '$username'
-    ORDER BY OBJDB, OBJSCHEMA, OBJNAME, PRIVILEGE
-    LIMIT 20;" "Object Privileges (Top 20)"
+    if [[ "$pwd_invalid" == "t" || "$pwd_invalid" == "true" ]]; then
+        print_warning "⚠️  PASSWORD IS INVALID"
+    else
+        print_success "✓ Password is valid"
+    fi
     
     # Current active sessions
     print_section "Current Active Sessions for $username"
-    execute_sql "
+    execute_safe_sql "_V_SESSION" "
     SELECT 
         ID,
         USERNAME,
@@ -398,20 +358,18 @@ analyze_specific_user() {
     FROM _V_SESSION
     WHERE UPPER(USERNAME) = '$username';" "Current Sessions"
     
-    # Permission summary
-    print_section "Permission Summary for $username"
-    
-    # Check admin status
-    admin_status=$($NZSQL_CMD -t -c "SELECT ADMIN_OPTION FROM _V_USER WHERE UPPER(USERNAME) = '$username';" 2>/dev/null | tr -d ' ')
-    if [[ "$admin_status" == "t" || "$admin_status" == "true" ]]; then
-        print_warning "⚠️  USER HAS ADMIN PRIVILEGES"
-    else
-        print_success "✓ User does not have admin privileges"
-    fi
-    
-    # Count privileges
-    role_count=$($NZSQL_CMD -t -c "SELECT COUNT(*) FROM _V_USER_ROLE WHERE UPPER(USERNAME) = '$username';" 2>/dev/null | tr -d ' ')
-    echo "Role memberships: $role_count"
+    # Recent activity using query history
+    print_section "Recent Query Activity for $username"
+    execute_safe_sql "_V_QRYHIST" "
+    SELECT 
+        QH_DATABASE,
+        COUNT(*) as QUERY_COUNT,
+        MAX(QH_TSTART) as LAST_ACTIVITY
+    FROM _V_QRYHIST
+    WHERE UPPER(QH_USER) = '$username'
+    AND QH_TSTART > NOW() - INTERVAL '7 DAYS'
+    GROUP BY QH_DATABASE
+    ORDER BY QUERY_COUNT DESC;" "Recent Activity (Last 7 Days)"
     
     echo ""
     read -p "Press Enter to continue..."
@@ -423,597 +381,521 @@ analyze_all_users_summary() {
     execute_sql "
     SELECT 
         USERNAME,
-        USERTYPE,
-        ADMIN_OPTION,
-        CREATEDATE
+        OWNER,
+        CREATEDATE,
+        ACCT_LOCKED,
+        PWD_INVALID,
+        USERESOURCEGRPNAME
     FROM _V_USER
     ORDER BY USERNAME;" "All Users Summary"
     
     echo ""
+    print_section "User Statistics"
+    
+    # Count statistics
+    total_users=$($NZSQL_CMD -t -c "SELECT COUNT(*) FROM _V_USER;" 2>/dev/null | tr -d ' ')
+    locked_users=$($NZSQL_CMD -t -c "SELECT COUNT(*) FROM _V_USER WHERE ACCT_LOCKED = 't';" 2>/dev/null | tr -d ' ')
+    invalid_pwd_users=$($NZSQL_CMD -t -c "SELECT COUNT(*) FROM _V_USER WHERE PWD_INVALID = 't';" 2>/dev/null | tr -d ' ')
+    
+    echo "Total users: $total_users"
+    echo "Locked accounts: $locked_users"
+    echo "Invalid passwords: $invalid_pwd_users"
+    
+    echo ""
     read -p "Press Enter to continue..."
 }
 
-analyze_admin_users() {
-    print_section "Users with Admin Privileges"
+analyze_account_status() {
+    print_section "Account Status Analysis"
     
+    # Locked accounts
+    print_section "Locked Accounts"
     execute_sql "
     SELECT 
         USERNAME,
-        USERTYPE,
+        OWNER,
         CREATEDATE,
-        ADMIN_OPTION,
-        RESOURCE_LIMIT,
-        CONNECTION_LIMIT
+        ACCT_LOCKED,
+        INV_CONN_CNT
     FROM _V_USER
-    WHERE ADMIN_OPTION = 't'
-    ORDER BY CREATEDATE;" "Admin Users"
+    WHERE ACCT_LOCKED = 't'
+    ORDER BY USERNAME;" "Locked Accounts"
     
-    echo ""
-    read -p "Press Enter to continue..."
-}
-
-analyze_inactive_users() {
-    print_section "Inactive Users Analysis"
-    
-    # Users who haven't logged in recently
-    execute_safe_sql "_V_QRYHIST" "
+    # Invalid passwords
+    print_section "Accounts with Invalid Passwords"
+    execute_sql "
     SELECT 
-        u.USERNAME,
-        u.USERTYPE,
-        u.CREATEDATE,
-        MAX(q.QH_TSTART) as LAST_ACTIVITY
-    FROM _V_USER u
-    LEFT JOIN _V_QRYHIST q ON UPPER(u.USERNAME) = UPPER(q.QH_USER)
-    WHERE q.QH_TSTART IS NULL OR q.QH_TSTART < NOW() - INTERVAL '30 DAYS'
-    GROUP BY u.USERNAME, u.USERTYPE, u.CREATEDATE
-    ORDER BY LAST_ACTIVITY NULLS LAST;" "Inactive Users (30+ days)"
+        USERNAME,
+        OWNER,
+        CREATEDATE,
+        PWD_INVALID,
+        PWD_LAST_CHGED
+    FROM _V_USER
+    WHERE PWD_INVALID = 't'
+    ORDER BY USERNAME;" "Invalid Password Accounts"
     
     echo ""
     read -p "Press Enter to continue..."
 }
 
-analyze_ad_group_permissions() {
-    print_security_header "AD GROUP PERMISSIONS ANALYSIS"
+analyze_user_resource_groups() {
+    print_section "User Resource Group Analysis"
+    
+    # Users by resource group
+    execute_sql "
+    SELECT 
+        USERESOURCEGRPNAME,
+        COUNT(*) as USER_COUNT,
+        STRING_AGG(USERNAME, ', ') as USERS
+    FROM _V_USER
+    WHERE USERESOURCEGRPNAME IS NOT NULL
+    GROUP BY USERESOURCEGRPNAME
+    ORDER BY USER_COUNT DESC;" "Users by Resource Group"
+    
+    # Resource group details
+    print_section "Resource Group Details"
+    execute_safe_sql "_V_GROUP" "
+    SELECT 
+        GROUPNAME,
+        OWNER,
+        CREATEDATE,
+        SESSIONTIMEOUT,
+        QUERYTIMEOUT,
+        DEF_PRIORITY,
+        MAX_PRIORITY,
+        GRORSGPERCENT,
+        RSGMAXPERCENT
+    FROM _V_GROUP
+    ORDER BY GROUPNAME;" "Resource Group Settings"
+    
+    echo ""
+    read -p "Press Enter to continue..."
+}
+
+analyze_authentication_methods() {
+    print_section "Authentication Configuration"
+    
+    # Authentication settings
+    execute_safe_sql "_V_AUTHENTICATION_SETTINGS" "
+    SELECT 
+        AUTH_OPTION,
+        AUTH_VALUE
+    FROM _V_AUTHENTICATION_SETTINGS
+    ORDER BY AUTH_OPTION;" "Authentication Settings"
+    
+    # Current authentication method
+    execute_safe_sql "_V_AUTHENTICATION" "
+    SELECT 
+        AUTH_OPTION,
+        AUTH_VALUE
+    FROM _V_AUTHENTICATION;" "Current Authentication Method"
+    
+    echo ""
+    read -p "Press Enter to continue..."
+}
+
+analyze_role_permissions() {
+    print_security_header "ROLE ANALYSIS"
     
     echo "What would you like to analyze?"
-    echo "1. Specific AD group/role permissions"
-    echo "2. All roles/groups summary"
-    echo "3. AD group members and their permissions"
-    echo "4. Database/schema access by group"
+    echo "1. All roles summary"
+    echo "2. Specific role details"
+    echo "3. Role creation analysis"
+    echo "4. Admin roles"
     echo "5. Return to security menu"
     echo ""
     
     read -p "Choose an option (1-5): " choice
     
     case $choice in
-        1) analyze_specific_group ;;
-        2) analyze_all_groups_summary ;;
-        3) analyze_group_members ;;
-        4) analyze_group_database_access ;;
+        1) analyze_all_roles_summary ;;
+        2) analyze_specific_role ;;
+        3) analyze_role_creation ;;
+        4) analyze_admin_roles ;;
         5) return ;;
         *) print_error "Invalid option" ;;
     esac
 }
 
-analyze_specific_group() {
-    echo ""
-    read -p "Enter AD group/role name to analyze: " groupname
+analyze_all_roles_summary() {
+    print_section "All Roles Summary"
     
-    if [[ -z "$groupname" ]]; then
-        print_error "Group name cannot be empty"
+    execute_sql "
+    SELECT 
+        ROLENAME,
+        ROLEGRANTOR,
+        ASADMIN,
+        CREATEDATE
+    FROM _V_ROLE
+    ORDER BY ROLENAME;" "All Roles Summary"
+    
+    echo ""
+    print_section "Role Statistics"
+    
+    total_roles=$($NZSQL_CMD -t -c "SELECT COUNT(*) FROM _V_ROLE;" 2>/dev/null | tr -d ' ')
+    admin_roles=$($NZSQL_CMD -t -c "SELECT COUNT(*) FROM _V_ROLE WHERE ASADMIN = 't';" 2>/dev/null | tr -d ' ')
+    
+    echo "Total roles: $total_roles"
+    echo "Admin roles: $admin_roles"
+    
+    echo ""
+    read -p "Press Enter to continue..."
+}
+
+analyze_specific_role() {
+    echo ""
+    read -p "Enter role name to analyze: " rolename
+    
+    if [[ -z "$rolename" ]]; then
+        print_error "Role name cannot be empty"
         return
     fi
     
-    groupname=$(echo "$groupname" | tr '[:lower:]' '[:upper:]')
+    rolename=$(echo "$rolename" | tr '[:lower:]' '[:upper:]')
     
-    print_section "Group/Role Information for: $groupname"
+    print_section "Role Information for: $rolename"
     
     # Basic role information
     execute_sql "
     SELECT 
         ROLENAME,
-        ROLETYPE,
-        CREATEDATE,
-        OWNER
+        ROLEGRANTOR,
+        ASADMIN,
+        CREATEDATE
     FROM _V_ROLE 
-    WHERE UPPER(ROLENAME) = '$groupname';" "Role Details" true
+    WHERE UPPER(ROLENAME) = '$rolename';" "Role Details" true
     
     # Check if role exists
-    role_exists=$($NZSQL_CMD -t -c "SELECT COUNT(*) FROM _V_ROLE WHERE UPPER(ROLENAME) = '$groupname';" 2>/dev/null | tr -d ' ')
+    role_exists=$($NZSQL_CMD -t -c "SELECT COUNT(*) FROM _V_ROLE WHERE UPPER(ROLENAME) = '$rolename';" 2>/dev/null | tr -d ' ')
     
     if [[ "$role_exists" -eq 0 ]]; then
-        print_warning "Role '$groupname' not found in the system"
+        print_warning "Role '$rolename' not found in the system"
         echo ""
         echo "Searching for similar role names..."
         execute_sql "
         SELECT ROLENAME 
         FROM _V_ROLE 
-        WHERE ROLENAME LIKE '%${groupname}%' 
+        WHERE ROLENAME LIKE '%${rolename}%' 
         ORDER BY ROLENAME;" "Similar Role Names" true
         return
     fi
     
-    print_success "Role '$groupname' found in the system"
+    print_success "Role '$rolename' found in the system"
     
-    # Members of this role
-    print_section "Members of Role: $groupname"
-    execute_safe_sql "_V_USER_ROLE" "
-    SELECT 
-        ur.USERNAME,
-        ur.ADMIN_OPTION
-    FROM _V_USER_ROLE ur
-    WHERE UPPER(ur.ROLENAME) = '$groupname'
-    ORDER BY ur.USERNAME;" "Role Members"
-    
-    # Database privileges granted to this role
-    print_section "Database Privileges for Role: $groupname"
-    execute_safe_sql "_V_DATABASE_PRIVILEGE" "
-    SELECT 
-        DATABASE,
-        PRIVILEGE,
-        GRANTOR,
-        ADMIN_OPTION
-    FROM _V_DATABASE_PRIVILEGE
-    WHERE UPPER(GRANTEE) = '$groupname'
-    ORDER BY DATABASE, PRIVILEGE;" "Database Privileges"
+    # Check admin status
+    asadmin=$($NZSQL_CMD -t -c "SELECT ASADMIN FROM _V_ROLE WHERE UPPER(ROLENAME) = '$rolename';" 2>/dev/null | tr -d ' ')
+    if [[ "$asadmin" == "t" || "$asadmin" == "true" ]]; then
+        print_warning "⚠️  ROLE HAS ADMIN PRIVILEGES"
+    else
+        print_success "✓ Role does not have admin privileges"
+    fi
     
     echo ""
     read -p "Press Enter to continue..."
 }
 
-analyze_all_groups_summary() {
-    print_section "All Roles/Groups Summary"
+analyze_admin_roles() {
+    print_section "Roles with Admin Privileges"
     
     execute_sql "
     SELECT 
         ROLENAME,
-        ROLETYPE,
+        ROLEGRANTOR,
         CREATEDATE,
-        OWNER
+        ASADMIN
     FROM _V_ROLE
-    ORDER BY ROLENAME;" "All Roles Summary"
+    WHERE ASADMIN = 't'
+    ORDER BY CREATEDATE;" "Admin Roles"
     
     echo ""
     read -p "Press Enter to continue..."
 }
 
-analyze_group_members() {
-    print_section "Group Members Analysis"
+analyze_role_creation() {
+    print_section "Role Creation Analysis"
     
-    execute_safe_sql "_V_USER_ROLE" "
+    # Roles by grantor
+    execute_sql "
     SELECT 
-        ur.ROLENAME,
-        COUNT(*) as MEMBER_COUNT,
-        STRING_AGG(ur.USERNAME, ', ') as MEMBERS
-    FROM _V_USER_ROLE ur
-    GROUP BY ur.ROLENAME
-    ORDER BY MEMBER_COUNT DESC;" "Group Member Counts"
+        ROLEGRANTOR,
+        COUNT(*) as ROLES_CREATED,
+        STRING_AGG(ROLENAME, ', ') as ROLES
+    FROM _V_ROLE
+    GROUP BY ROLEGRANTOR
+    ORDER BY ROLES_CREATED DESC;" "Roles by Creator"
     
-    echo ""
-    read -p "Press Enter to continue..."
-}
-
-analyze_group_database_access() {
-    print_section "Database Access by Group"
-    
-    execute_safe_sql "_V_DATABASE_PRIVILEGE" "
+    # Recent role creation
+    print_section "Recently Created Roles (Last 30 Days)"
+    execute_sql "
     SELECT 
-        GRANTEE as ROLE_NAME,
-        COUNT(DISTINCT DATABASE) as DATABASE_COUNT,
-        STRING_AGG(DISTINCT DATABASE, ', ') as DATABASES
-    FROM _V_DATABASE_PRIVILEGE
-    GROUP BY GRANTEE
-    ORDER BY DATABASE_COUNT DESC;" "Database Access by Role"
+        ROLENAME,
+        ROLEGRANTOR,
+        CREATEDATE,
+        ASADMIN
+    FROM _V_ROLE
+    WHERE CREATEDATE > NOW() - INTERVAL '30 DAYS'
+    ORDER BY CREATEDATE DESC;" "Recent Roles"
     
     echo ""
     read -p "Press Enter to continue..."
-}
-
-analyze_database_schema_access() {
-    print_security_header "DATABASE & SCHEMA ACCESS ANALYSIS"
-    
-    echo "What would you like to analyze?"
-    echo "1. Who has access to a specific database"
-    echo "2. Who has access to a specific schema"
-    echo "3. Database access summary (all databases)"
-    echo "4. Schema access summary (all schemas)"
-    echo "5. Cross-database access analysis"
-    echo "6. Return to security menu"
-    echo ""
-    
-    read -p "Choose an option (1-6): " choice
-    
-    case $choice in
-        1) analyze_database_access ;;
-        2) analyze_schema_access ;;
-        3) analyze_all_database_access ;;
-        4) analyze_all_schema_access ;;
-        5) analyze_cross_database_access ;;
-        6) return ;;
-        *) print_error "Invalid option" ;;
-    esac
 }
 
 analyze_database_access() {
-    echo ""
-    echo "Available databases:"
-    execute_sql "SELECT DATABASE, OWNER FROM _V_DATABASE ORDER BY DATABASE;" "Available Databases" true
+    print_security_header "DATABASE ACCESS ANALYSIS"
     
-    echo ""
-    read -p "Enter database name to analyze: " dbname
-    
-    if [[ -z "$dbname" ]]; then
-        print_error "Database name cannot be empty"
-        return
-    fi
-    
-    dbname=$(echo "$dbname" | tr '[:lower:]' '[:upper:]')
-    
-    print_section "Access Analysis for Database: $dbname"
-    
-    # Direct database privileges
-    print_section "Direct Database Privileges"
-    execute_safe_sql "_V_DATABASE_PRIVILEGE" "
-    SELECT 
-        GRANTEE,
-        PRIVILEGE,
-        GRANTOR,
-        ADMIN_OPTION
-    FROM _V_DATABASE_PRIVILEGE
-    WHERE UPPER(DATABASE) = '$dbname'
-    ORDER BY GRANTEE, PRIVILEGE;" "Direct Database Privileges"
-    
-    # Users with access through roles
-    print_section "Access Through Role Membership"
-    execute_safe_sql "_V_DATABASE_PRIVILEGE" "
-    SELECT DISTINCT
-        ur.USERNAME,
-        dp.PRIVILEGE,
-        dp.GRANTEE as ROLE_NAME,
-        dp.ADMIN_OPTION
-    FROM _V_DATABASE_PRIVILEGE dp
-    JOIN _V_USER_ROLE ur ON UPPER(dp.GRANTEE) = UPPER(ur.ROLENAME)
-    WHERE UPPER(dp.DATABASE) = '$dbname'
-    ORDER BY ur.USERNAME, dp.PRIVILEGE;" "Access Via Roles"
-    
-    echo ""
-    read -p "Press Enter to continue..."
-}
-
-analyze_schema_access() {
-    echo ""
-    read -p "Enter schema name to analyze: " schemaname
-    
-    if [[ -z "$schemaname" ]]; then
-        print_error "Schema name cannot be empty"
-        return
-    fi
-    
-    schemaname=$(echo "$schemaname" | tr '[:lower:]' '[:upper:]')
-    
-    print_section "Access Analysis for Schema: $schemaname"
-    
-    # Direct schema privileges
-    execute_safe_sql "_V_SCHEMA_PRIVILEGE" "
-    SELECT 
-        GRANTEE,
-        PRIVILEGE,
-        GRANTOR,
-        ADMIN_OPTION
-    FROM _V_SCHEMA_PRIVILEGE
-    WHERE UPPER(SCHEMA) = '$schemaname'
-    ORDER BY GRANTEE, PRIVILEGE;" "Direct Schema Privileges"
-    
-    echo ""
-    read -p "Press Enter to continue..."
-}
-
-analyze_all_database_access() {
-    print_section "Database Access Summary (All Databases)"
-    
-    execute_safe_sql "_V_DATABASE_PRIVILEGE" "
-    SELECT 
-        DATABASE,
-        COUNT(DISTINCT GRANTEE) as PRIVILEGED_USERS_ROLES,
-        STRING_AGG(DISTINCT GRANTEE, ', ') as GRANTEES
-    FROM _V_DATABASE_PRIVILEGE
-    GROUP BY DATABASE
-    ORDER BY DATABASE;" "Database Access Summary"
-    
-    echo ""
-    read -p "Press Enter to continue..."
-}
-
-analyze_all_schema_access() {
-    print_section "Schema Access Summary (All Schemas)"
-    
-    execute_safe_sql "_V_SCHEMA_PRIVILEGE" "
-    SELECT 
-        SCHEMA,
-        COUNT(DISTINCT GRANTEE) as PRIVILEGED_USERS_ROLES,
-        STRING_AGG(DISTINCT GRANTEE, ', ') as GRANTEES
-    FROM _V_SCHEMA_PRIVILEGE
-    GROUP BY SCHEMA
-    ORDER BY SCHEMA;" "Schema Access Summary"
-    
-    echo ""
-    read -p "Press Enter to continue..."
-}
-
-analyze_cross_database_access() {
-    print_section "Cross-Database Access Analysis"
-    
-    execute_safe_sql "_V_DATABASE_PRIVILEGE" "
-    SELECT 
-        GRANTEE,
-        COUNT(DISTINCT DATABASE) as DATABASE_COUNT,
-        STRING_AGG(DISTINCT DATABASE, ', ') as DATABASES
-    FROM _V_DATABASE_PRIVILEGE
-    GROUP BY GRANTEE
-    HAVING COUNT(DISTINCT DATABASE) > 1
-    ORDER BY DATABASE_COUNT DESC;" "Multi-Database Access"
-    
-    echo ""
-    read -p "Press Enter to continue..."
-}
-
-analyze_security_audit() {
-    print_security_header "SECURITY AUDIT AND COMPLIANCE"
-    
-    echo "What type of security audit would you like to perform?"
-    echo "1. Excessive privileges audit"
-    echo "2. Inactive users analysis"
-    echo "3. Admin users review"
-    echo "4. Cross-database access review"
-    echo "5. Compliance report (comprehensive)"
-    echo "6. Return to security menu"
+    echo "What would you like to analyze?"
+    echo "1. Database ownership"
+    echo "2. Database access through ACL"
+    echo "3. Current database sessions"
+    echo "4. Database usage statistics"
+    echo "5. Return to security menu"
     echo ""
     
-    read -p "Choose an option (1-6): " choice
+    read -p "Choose an option (1-5): " choice
     
     case $choice in
-        1) audit_excessive_privileges ;;
-        2) analyze_inactive_users ;;
-        3) analyze_admin_users ;;
-        4) analyze_cross_database_access ;;
-        5) generate_compliance_report ;;
-        6) return ;;
+        1) analyze_database_ownership ;;
+        2) analyze_database_acl ;;
+        3) analyze_database_sessions ;;
+        4) analyze_database_usage ;;
+        5) return ;;
         *) print_error "Invalid option" ;;
     esac
 }
 
-audit_excessive_privileges() {
-    print_section "Excessive Privileges Audit"
+analyze_database_ownership() {
+    print_section "Database Ownership Analysis"
     
-    # Users with admin privileges
-    print_section "Users with Admin Privileges"
-    execute_sql "
+    execute_safe_sql "_V_DATABASE" "
     SELECT 
-        USERNAME,
-        USERTYPE,
-        CREATEDATE,
-        ADMIN_OPTION
-    FROM _V_USER
-    WHERE ADMIN_OPTION = 't'
-    ORDER BY CREATEDATE;" "Admin Users"
-    
-    # Users with access to multiple databases
-    print_section "Users with Multi-Database Access"
-    execute_safe_sql "_V_DATABASE_PRIVILEGE" "
-    SELECT 
-        GRANTEE,
-        COUNT(DISTINCT DATABASE) as DATABASE_COUNT,
-        STRING_AGG(DISTINCT DATABASE, ', ') as DATABASES
-    FROM _V_DATABASE_PRIVILEGE
-    GROUP BY GRANTEE
-    HAVING COUNT(DISTINCT DATABASE) > 3
-    ORDER BY DATABASE_COUNT DESC;" "Multi-Database Access"
+        DATABASE,
+        OWNER,
+        CREATEDATE
+    FROM _V_DATABASE
+    ORDER BY DATABASE;" "Database Ownership"
     
     echo ""
     read -p "Press Enter to continue..."
 }
 
-generate_compliance_report() {
-    local report_file="/tmp/netezza_security_compliance_$(date +%Y%m%d_%H%M%S).txt"
+analyze_database_acl() {
+    print_section "Database Access Control List (ACL) Analysis"
     
-    print_section "Generating Comprehensive Compliance Report"
-    echo "Report will be saved to: $report_file"
-    
-    {
-        echo "NETEZZA SECURITY COMPLIANCE REPORT"
-        echo "Generated: $(date)"
-        echo "Database: $NETEZZA_HOST/$NETEZZA_DB"
-        echo "========================================================"
-        echo ""
-        
-        echo "1. USER SUMMARY"
-        echo "---------------"
-        $NZSQL_CMD -c "
-        SELECT 
-            COUNT(*) as TOTAL_USERS,
-            COUNT(CASE WHEN ADMIN_OPTION = 't' THEN 1 END) as ADMIN_USERS
-        FROM _V_USER;"
-        echo ""
-        
-        echo "2. ADMIN USERS"
-        echo "--------------"
-        $NZSQL_CMD -c "
-        SELECT USERNAME, CREATEDATE, USERTYPE 
-        FROM _V_USER 
-        WHERE ADMIN_OPTION = 't' 
-        ORDER BY CREATEDATE;"
-        echo ""
-        
-        echo "3. DATABASE ACCESS SUMMARY"
-        echo "--------------------------"
-        $NZSQL_CMD -c "
-        SELECT 
-            DATABASE,
-            COUNT(DISTINCT GRANTEE) as PRIVILEGED_USERS_ROLES
-        FROM _V_DATABASE_PRIVILEGE
-        GROUP BY DATABASE
-        ORDER BY DATABASE;" 2>/dev/null || echo "Database privilege information not available"
-        
-    } > "$report_file"
-    
-    print_success "Compliance report generated: $report_file"
+    execute_safe_sql "_V_ACL_DATA" "
+    SELECT 
+        ACLDB,
+        ACLOBJECT,
+        ACLOBJPRIV,
+        COUNT(*) as ACL_COUNT
+    FROM _V_ACL_DATA
+    GROUP BY ACLDB, ACLOBJECT, ACLOBJPRIV
+    ORDER BY ACLDB, ACLOBJECT;" "ACL Summary"
     
     echo ""
-    echo "Report Summary:"
-    head -30 "$report_file"
+    print_warning "Note: ACL data interpretation requires additional system knowledge"
+    print_warning "ACLDB: Database ID, ACLOBJECT: Object ID, ACLOBJPRIV: Privilege bitmask"
+    
+    echo ""
+    read -p "Press Enter to continue..."
+}
+
+analyze_database_sessions() {
+    print_section "Current Database Sessions"
+    
+    execute_safe_sql "_V_SESSION" "
+    SELECT 
+        DBNAME,
+        COUNT(*) as SESSION_COUNT,
+        COUNT(DISTINCT USERNAME) as UNIQUE_USERS,
+        STRING_AGG(DISTINCT STATUS, ', ') as STATUSES
+    FROM _V_SESSION
+    GROUP BY DBNAME
+    ORDER BY SESSION_COUNT DESC;" "Sessions by Database"
+    
+    echo ""
+    read -p "Press Enter to continue..."
+}
+
+analyze_database_usage() {
+    print_section "Database Usage Statistics (Last 7 Days)"
+    
+    execute_safe_sql "_V_QRYHIST" "
+    SELECT 
+        QH_DATABASE,
+        COUNT(*) as QUERY_COUNT,
+        COUNT(DISTINCT QH_USER) as UNIQUE_USERS,
+        MAX(QH_TSTART) as LAST_ACTIVITY,
+        MIN(QH_TSTART) as FIRST_ACTIVITY
+    FROM _V_QRYHIST
+    WHERE QH_TSTART > NOW() - INTERVAL '7 DAYS'
+    GROUP BY QH_DATABASE
+    ORDER BY QUERY_COUNT DESC;" "Database Usage Statistics"
     
     echo ""
     read -p "Press Enter to continue..."
 }
 
 quick_permission_lookup() {
-    print_security_header "QUICK PERMISSION LOOKUP"
+    print_security_header "QUICK SECURITY LOOKUP"
     
     echo "What do you want to check quickly?"
-    echo "1. Does user X have permission Y?"
-    echo "2. Who has access to database/schema Z?"
-    echo "3. What permissions does user X have?"
-    echo "4. What permissions does role Y provide?"
-    echo "5. Is user X currently active?"
-    echo "6. Return to security menu"
+    echo "1. Is user account locked or has invalid password?"
+    echo "2. What resource group is user assigned to?"
+    echo "3. Does role have admin privileges?"
+    echo "4. Who owns a specific database?"
+    echo "5. Is user currently active (has sessions)?"
+    echo "6. User's recent activity summary"
+    echo "7. Return to security menu"
     echo ""
     
-    read -p "Choose an option (1-6): " choice
+    read -p "Choose an option (1-7): " choice
     
     case $choice in
-        1) quick_check_user_permission ;;
-        2) quick_check_access_to_object ;;
-        3) quick_check_user_permissions ;;
-        4) quick_check_role_permissions ;;
-        5) quick_check_user_activity ;;
-        6) return ;;
+        1) quick_check_account_status ;;
+        2) quick_check_user_resource_group ;;
+        3) quick_check_role_admin ;;
+        4) quick_check_database_owner ;;
+        5) quick_check_user_sessions ;;
+        6) quick_check_user_activity ;;
+        7) return ;;
         *) print_error "Invalid option" ;;
     esac
 }
 
-quick_check_user_permission() {
-    echo ""
-    read -p "Enter username: " username
-    read -p "Enter database/schema/table name: " object_name
-    read -p "Enter permission type (SELECT, INSERT, UPDATE, DELETE, etc.): " permission
-    
-    username=$(echo "$username" | tr '[:lower:]' '[:upper:]')
-    object_name=$(echo "$object_name" | tr '[:lower:]' '[:upper:]')
-    permission=$(echo "$permission" | tr '[:lower:]' '[:upper:]')
-    
-    print_section "Permission Check: $username -> $permission on $object_name"
-    
-    # Check direct database privileges
-    echo "Checking database privileges..."
-    execute_safe_sql "_V_DATABASE_PRIVILEGE" "
-    SELECT 'DIRECT DATABASE ACCESS' as ACCESS_TYPE, DATABASE, PRIVILEGE, GRANTOR
-    FROM _V_DATABASE_PRIVILEGE
-    WHERE UPPER(GRANTEE) = '$username'
-    AND (UPPER(DATABASE) = '$object_name' OR PRIVILEGE = '$permission');" "Direct Database Access"
-    
-    # Check role-based access
-    echo ""
-    echo "Checking role-based access..."
-    execute_safe_sql "_V_DATABASE_PRIVILEGE" "
-    SELECT 'ROLE-BASED ACCESS' as ACCESS_TYPE, ur.ROLENAME, dp.DATABASE, dp.PRIVILEGE, dp.GRANTOR
-    FROM _V_USER_ROLE ur
-    JOIN _V_DATABASE_PRIVILEGE dp ON UPPER(ur.ROLENAME) = UPPER(dp.GRANTEE)
-    WHERE UPPER(ur.USERNAME) = '$username'
-    AND (UPPER(dp.DATABASE) = '$object_name' OR dp.PRIVILEGE = '$permission');" "Role-Based Access"
-    
-    echo ""
-    read -p "Press Enter to continue..."
-}
-
-quick_check_access_to_object() {
-    echo ""
-    read -p "Enter database/schema/table name: " object_name
-    
-    object_name=$(echo "$object_name" | tr '[:lower:]' '[:upper:]')
-    
-    print_section "Who has access to: $object_name"
-    
-    # Check database access
-    execute_safe_sql "_V_DATABASE_PRIVILEGE" "
-    SELECT 
-        GRANTEE,
-        PRIVILEGE,
-        'DATABASE' as OBJECT_TYPE
-    FROM _V_DATABASE_PRIVILEGE
-    WHERE UPPER(DATABASE) = '$object_name'
-    ORDER BY GRANTEE, PRIVILEGE;" "Database Access"
-    
-    echo ""
-    read -p "Press Enter to continue..."
-}
-
-quick_check_user_permissions() {
+quick_check_account_status() {
     echo ""
     read -p "Enter username: " username
     
     username=$(echo "$username" | tr '[:lower:]' '[:upper:]')
     
-    print_section "All permissions for user: $username"
+    print_section "Account Status Check: $username"
     
-    # Check if user exists
-    user_exists=$($NZSQL_CMD -t -c "SELECT COUNT(*) FROM _V_USER WHERE UPPER(USERNAME) = '$username';" 2>/dev/null | tr -d ' ')
+    # Check if user exists and get status
+    user_info=$($NZSQL_CMD -t -c "
+    SELECT USERNAME, ACCT_LOCKED, PWD_INVALID, CREATEDATE 
+    FROM _V_USER 
+    WHERE UPPER(USERNAME) = '$username';" 2>/dev/null)
     
-    if [[ "$user_exists" -eq 0 ]]; then
+    if [[ -z "$user_info" ]]; then
         print_warning "User '$username' not found"
         return
     fi
     
-    # Show admin status
-    admin_status=$($NZSQL_CMD -t -c "SELECT ADMIN_OPTION FROM _V_USER WHERE UPPER(USERNAME) = '$username';" 2>/dev/null | tr -d ' ')
-    if [[ "$admin_status" == "t" || "$admin_status" == "true" ]]; then
-        print_warning "⚠️  USER HAS ADMIN PRIVILEGES"
-    else
-        print_success "✓ User does not have admin privileges"
-    fi
-    
-    # Show role memberships
-    execute_safe_sql "_V_USER_ROLE" "
-    SELECT ROLENAME
-    FROM _V_USER_ROLE
-    WHERE UPPER(USERNAME) = '$username'
-    ORDER BY ROLENAME;" "Role Memberships"
-    
-    echo ""
-    read -p "Press Enter to continue..."
-}
-
-quick_check_role_permissions() {
-    echo ""
-    read -p "Enter role/group name: " rolename
-    
-    rolename=$(echo "$rolename" | tr '[:lower:]' '[:upper:]')
-    
-    print_section "Permissions for role: $rolename"
-    
-    # Check database privileges
-    execute_safe_sql "_V_DATABASE_PRIVILEGE" "
-    SELECT 
-        DATABASE,
-        PRIVILEGE,
-        ADMIN_OPTION
-    FROM _V_DATABASE_PRIVILEGE
-    WHERE UPPER(GRANTEE) = '$rolename'
-    ORDER BY DATABASE, PRIVILEGE;" "Database Privileges"
+    echo "$user_info" | while IFS='|' read -r uname locked invalid created; do
+        uname=$(echo "$uname" | tr -d ' ')
+        locked=$(echo "$locked" | tr -d ' ')
+        invalid=$(echo "$invalid" | tr -d ' ')
+        created=$(echo "$created" | tr -d ' ')
+        
+        echo "User: $uname"
+        echo "Created: $created"
+        
+        if [[ "$locked" == "t" ]]; then
+            print_warning "⚠️  ACCOUNT IS LOCKED"
+        else
+            print_success "✓ Account is not locked"
+        fi
+        
+        if [[ "$invalid" == "t" ]]; then
+            print_warning "⚠️  PASSWORD IS INVALID"
+        else
+            print_success "✓ Password is valid"
+        fi
+    done
     
     echo ""
     read -p "Press Enter to continue..."
 }
 
-quick_check_user_activity() {
+quick_check_user_resource_group() {
     echo ""
     read -p "Enter username: " username
     
     username=$(echo "$username" | tr '[:lower:]' '[:upper:]')
     
-    print_section "Current activity for user: $username"
+    print_section "Resource Group Check: $username"
     
-    # Check active sessions
     execute_sql "
+    SELECT 
+        USERNAME,
+        USERESOURCEGRPNAME,
+        DEF_PRIORITY,
+        MAX_PRIORITY,
+        SESSIONTIMEOUT,
+        QUERYTIMEOUT
+    FROM _V_USER
+    WHERE UPPER(USERNAME) = '$username';" "User Resource Group"
+    
+    echo ""
+    read -p "Press Enter to continue..."
+}
+
+quick_check_role_admin() {
+    echo ""
+    read -p "Enter role name: " rolename
+    
+    rolename=$(echo "$rolename" | tr '[:lower:]' '[:upper:]')
+    
+    print_section "Admin Privilege Check: $rolename"
+    
+    role_info=$($NZSQL_CMD -t -c "
+    SELECT ROLENAME, ASADMIN, ROLEGRANTOR 
+    FROM _V_ROLE 
+    WHERE UPPER(ROLENAME) = '$rolename';" 2>/dev/null)
+    
+    if [[ -z "$role_info" ]]; then
+        print_warning "Role '$rolename' not found"
+        return
+    fi
+    
+    echo "$role_info" | while IFS='|' read -r rname asadmin grantor; do
+        rname=$(echo "$rname" | tr -d ' ')
+        asadmin=$(echo "$asadmin" | tr -d ' ')
+        grantor=$(echo "$grantor" | tr -d ' ')
+        
+        echo "Role: $rname"
+        echo "Created by: $grantor"
+        
+        if [[ "$asadmin" == "t" ]]; then
+            print_warning "⚠️  ROLE HAS ADMIN PRIVILEGES"
+        else
+            print_success "✓ Role does not have admin privileges"
+        fi
+    done
+    
+    echo ""
+    read -p "Press Enter to continue..."
+}
+
+quick_check_database_owner() {
+    echo ""
+    read -p "Enter database name: " dbname
+    
+    dbname=$(echo "$dbname" | tr '[:lower:]' '[:upper:]')
+    
+    print_section "Database Owner Check: $dbname"
+    
+    execute_safe_sql "_V_DATABASE" "
+    SELECT 
+        DATABASE,
+        OWNER,
+        CREATEDATE
+    FROM _V_DATABASE
+    WHERE UPPER(DATABASE) = '$dbname';" "Database Owner"
+    
+    echo ""
+    read -p "Press Enter to continue..."
+}
+
+quick_check_user_sessions() {
+    echo ""
+    read -p "Enter username: " username
+    
+    username=$(echo "$username" | tr '[:lower:]' '[:upper:]')
+    
+    print_section "Current Sessions: $username"
+    
+    execute_safe_sql "_V_SESSION" "
     SELECT 
         ID,
         USERNAME,
@@ -1028,29 +910,54 @@ quick_check_user_activity() {
     read -p "Press Enter to continue..."
 }
 
+quick_check_user_activity() {
+    echo ""
+    read -p "Enter username: " username
+    
+    username=$(echo "$username" | tr '[:lower:]' '[:upper:]')
+    
+    print_section "Recent Activity Summary: $username"
+    
+    execute_safe_sql "_V_QRYHIST" "
+    SELECT 
+        QH_DATABASE,
+        COUNT(*) as QUERIES,
+        MAX(QH_TSTART) as LAST_ACTIVITY,
+        MIN(QH_TSTART) as FIRST_ACTIVITY
+    FROM _V_QRYHIST
+    WHERE UPPER(QH_USER) = '$username'
+    AND QH_TSTART > NOW() - INTERVAL '7 DAYS'
+    GROUP BY QH_DATABASE
+    ORDER BY QUERIES DESC;" "Recent Activity (7 days)"
+    
+    echo ""
+    read -p "Press Enter to continue..."
+}
+
 show_security_menu() {
     clear
     echo -e "${PURPLE}╔══════════════════════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${PURPLE}║                   NETEZZA SECURITY & PERMISSIONS ANALYZER                   ║${NC}"
-    echo -e "${PURPLE}║                              Version 1.1                                    ║${NC}"
+    echo -e "${PURPLE}║                         Version 1.2 - Corrected Schema                      ║${NC}"
     echo -e "${PURPLE}╚══════════════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "${CYAN}Security Analysis Options:${NC}"
     echo "1. 🔍 Discover Security System Views (Run this first!)"
-    echo "2. 👤 User Permissions Analysis"
-    echo "3. 👥 AD Group/Role Permissions Analysis"
-    echo "4. 🗄️  Database & Schema Access Analysis"
-    echo "5. 🔐 Security Audit & Compliance"
-    echo "6. ❓ Quick Permission Lookup"
-    echo "7. ⚙️  Security Configuration"
-    echo "8. 📋 View Security Log"
-    echo "9. 🚪 Exit"
+    echo "2. 👤 User Account Analysis"
+    echo "3. 👥 Role Analysis"
+    echo "4. 🗄️  Database Access Analysis"
+    echo "5. ❓ Quick Security Lookup"
+    echo "6. ⚙️  Security Configuration"
+    echo "7. 📋 View Security Log"
+    echo "8. 🚪 Exit"
     echo ""
     echo -e "${YELLOW}Current Settings:${NC}"
     echo "  - Host: ${NETEZZA_HOST:-'(local connection)'}"
     echo "  - Database: $NETEZZA_DB"
     echo "  - User: $NETEZZA_USER"
     echo "  - Security Log: $SECURITY_LOG_FILE"
+    echo ""
+    echo -e "${YELLOW}Note: This version is updated to work with your actual Netezza schema${NC}"
     echo ""
 }
 
@@ -1073,7 +980,7 @@ main_security() {
     # Main security program loop
     while true; do
         show_security_menu
-        read -p "Choose an option (1-9): " choice
+        read -p "Choose an option (1-8): " choice
         
         case $choice in
             1)
@@ -1083,29 +990,26 @@ main_security() {
                 analyze_user_permissions
                 ;;
             3)
-                analyze_ad_group_permissions
+                analyze_role_permissions
                 ;;
             4)
-                analyze_database_schema_access
+                analyze_database_access
                 ;;
             5)
-                analyze_security_audit
-                ;;
-            6)
                 quick_permission_lookup
                 ;;
-            7)
+            6)
                 configure_settings
                 ;;
-            8)
+            7)
                 view_log_file
                 ;;
-            9)
+            8)
                 print_success "Thank you for using Netezza Security Analyzer!"
                 exit 0
                 ;;
             *)
-                print_error "Invalid option. Please choose 1-9."
+                print_error "Invalid option. Please choose 1-8."
                 read -p "Press Enter to continue..."
                 ;;
         esac
