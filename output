@@ -1,22 +1,164 @@
-Choose an option (1-11): 2
+Choose an option (1-9): 1
 
 ════════════════════════════════════════════════════════════════════════════════
- 🔐 USER PERMISSIONS ANALYSIS
+ 🔐 NETEZZA SECURITY VIEWS DISCOVERY
 ════════════════════════════════════════════════════════════════════════════════
 
-What would you like to analyze?
-1. Specific user permissions
-2. All users summary
-3. Users with admin privileges
-4. Inactive users analysis
-5. Return to security menu
 
-Choose an option (1-5): 1
+▶ Discovering Security-Related System Views
+────────────────────────────────────────────────────────────────────────────────
+Testing _V_USER... ✓ Available
+Testing _V_ROLE... ✓ Available
+Testing _V_USER_ROLE... ✗ Not available
+Testing _V_PRIVILEGE... ✗ Not available
+Testing _V_OBJECT_PRIVILEGE... ✗ Not available
+Testing _V_AUTHENTICATION... ✓ Available
+Testing _V_AUTHENTICATION_SETTINGS... ✓ Available
+Testing _V_GROUP... ✓ Available
+Testing _V_USER_GROUP... ✗ Not available
+Testing _V_SCHEMA_PRIVILEGE... ✗ Not available
+Testing _V_TABLE_PRIVILEGE... ✗ Not available
+Testing _V_DATABASE_PRIVILEGE... ✗ Not available
+Testing _V_ACL... ✗ Not available
+Testing _V_ACL_DATA... ✓ Available
+Testing _V_SECURITY_LEVEL... ✓ Available
+Testing _V_SECURITY_CATEGORY... ✓ Available
 
-Enter username to analyze: akj67
-./nz_secure.sh: line 123: print_section: command not found
-./nz_secure.sh: line 137: execute_sql: command not found
-./nz_secure.sh: line 143: print_warning: command not found
 
-Searching for similar usernames...
-./nz_secure.sh: line 150: execute_sq
+▶ Available Security Views (8)
+────────────────────────────────────────────────────────────────────────────────
+  ✓ _V_USER
+  ✓ _V_ROLE
+  ✓ _V_AUTHENTICATION
+  ✓ _V_AUTHENTICATION_SETTINGS
+  ✓ _V_GROUP
+  ✓ _V_ACL_DATA
+  ✓ _V_SECURITY_LEVEL
+  ✓ _V_SECURITY_CATEGORY
+
+
+▶ Column Structure Analysis
+────────────────────────────────────────────────────────────────────────────────
+
+Analyzing _V_USER:
+Executing: Column Structure for _V_USER
+ OBJID | USERNAME | OWNER | VALIDUNTIL | CREATEDATE | ROWLIMIT | ACCT_LOCKED | INV_CONN_CNT | PWD_INVALID | PWD_LAST_CHGED | SESSIONTIMEOUT | QUERYTIMEOUT | DEF_PRIORITY | MAX_PRIORITY | USESYSID | OBJDELIM | USERESOURCEGRPID | USERESOURCEGRPNAME | CROSS_JOINS_ALLOWED | USEAUTH | PWD_EXPIRY
+-------+----------+-------+------------+------------+----------+-------------+--------------+-------------+----------------+----------------+--------------+--------------+--------------+----------+----------+------------------+--------------------+---------------------+---------+------------
+(0 rows)
+
+Analyzing _V_ROLE:
+Executing: Column Structure for _V_ROLE
+ OBJID | ROLENAME | ROLEGRANTOR | ASADMIN | CREATEDATE | OBJDELIM
+-------+----------+-------------+---------+------------+----------
+(0 rows)
+
+Analyzing _V_AUTHENTICATION:
+Executing: Column Structure for _V_AUTHENTICATION
+ AUTH_OPTION | AUTH_VALUE
+-------------+------------
+(0 rows)
+
+Analyzing _V_AUTHENTICATION_SETTINGS:
+Executing: Column Structure for _V_AUTHENTICATION_SETTINGS
+ AUTH_OPTION | AUTH_VALUE
+-------------+------------
+(0 rows)
+
+Analyzing _V_GROUP:
+Executing: Column Structure for _V_GROUP
+ OBJID | GROUPNAME | OWNER | CREATEDATE | ROWLIMIT | SESSIONTIMEOUT | QUERYTIMEOUT | DEF_PRIORITY | MAX_PRIORITY | OBJDELIM | GRORSGPERCENT | RSGMAXPERCENT | CROSS_JOINS_ALLOWED | COLLECTHISTORY | ACCESSTIME | CONCURRENTSESS | JOBMAX | PWD_EXPIRY
+-------+-----------+-------+------------+----------+----------------+--------------+--------------+--------------+----------+---------------+---------------+---------------------+----------------+------------+----------------+--------+------------
+(0 rows)
+
+Analyzing _V_ACL_DATA:
+Executing: Column Structure for _V_ACL_DATA
+ ACLDB | ACLOBJECT | ACLOBJPRIV
+-------+-----------+------------
+(0 rows)
+
+Analyzing _V_SECURITY_LEVEL:
+Executing: Column Structure for _V_SECURITY_LEVEL
+ LEVEL | NAME | DELIM
+-------+------+-------
+(0 rows)
+
+Analyzing _V_SECURITY_CATEGORY:
+Executing: Column Structure for _V_SECURITY_CATEGORY
+ ID | NAME | DELIM
+----+------+-------
+(0 rows)
+
+
+▶ Sample Security Data
+────────────────────────────────────────────────────────────────────────────────
+
+Sample from _V_USER:
+Executing: Sample data from _V_USER
+  OBJID   | USERNAME | OWNER | VALIDUNTIL |     CREATEDATE      | ROWLIMIT | ACCT_LOCKED | INV_CONN_CNT | PWD_INVALID | PWD_LAST_CHGED | SESSIONTIMEOUT | QUERYTIMEOUT | DEF_PRIORITY | MAX_PRIORITY | USESYSID | OBJDELIM | USERESOURCEGRPID | USERESOURCEGRPNAME | CROSS_JOINS_ALLOWED | USEAUTH | PWD_EXPIRY
+----------+----------+-------+------------+---------------------+----------+-------------+--------------+-------------+----------------+----------------+--------------+--------------+--------------+----------+----------+------------------+--------------------+---------------------+---------+------------
+ 51828483 | 23464    | ADMIN |            | 2025-02-10 08:53:27 |        0 | f           |            0 | f           |                |              0 |            0 | NONE         | NONE         |     2648 | t        |           339797 | BUSINESS_USERS     | NULL                | DEFAULT |          0
+   245348 | 29659    | ADMIN |            | 2022-10-17 09:37:20 |        0 | f           |            0 | f           |                |              0 |            0 | NONE         | NONE         |     1055 | t        |           339797 | BUSINESS_USERS     | NULL                | DEFAULT |          0
+ 51879892 | 30099    | ADMIN |            | 2025-02-10 08:53:37 |        0 | f           |            0 | f           |                |              0 |            0 | NONE         | NONE         |     2801 | t        |           339797 | BUSINESS_USERS     | NULL                | DEFAULT |          0
+(3 rows)
+
+Sample from _V_ROLE:
+Executing: Sample data from _V_ROLE
+  OBJID   |      ROLENAME      | ROLEGRANTOR | ASADMIN |     CREATEDATE      | OBJDELIM
+----------+--------------------+-------------+---------+---------------------+----------
+ 66957862 | DEMO_FCBAPP_SECURE | KWL20       | f       | 2025-03-19 13:37:11 | f
+ 66960621 | DSLAND_SECURE      | KWL20       | f       | 2025-03-19 14:37:02 | f
+ 19328378 | TEST_ROLE          | MXM25       | f       | 2024-01-24 14:03:53 | f
+(3 rows)
+
+Sample from _V_AUTHENTICATION:
+Executing: Sample data from _V_AUTHENTICATION
+      AUTH_OPTION      | AUTH_VALUE
+-----------------------+------------
+ AUTHENTICATION METHOD | LDAP
+(1 row)
+
+Sample from _V_AUTHENTICATION_SETTINGS:
+Executing: Sample data from _V_AUTHENTICATION_SETTINGS
+      AUTH_OPTION       |        AUTH_VALUE
+------------------------+--------------------------
+ AUTHENTICATION METHOD  | LDAP
+ AUTHMTHD LDAP ATTRNAME | sAMAccountName
+ AUTHMTHD LDAP BASE     | dc=fcpd,dc=fcbint,dc=net
+(3 rows)
+
+Sample from _V_GROUP:
+Executing: Sample data from _V_GROUP
+ OBJID  |   GROUPNAME    | OWNER |     CREATEDATE      | ROWLIMIT | SESSIONTIMEOUT | QUERYTIMEOUT | DEF_PRIORITY | MAX_PRIORITY | OBJDELIM | GRORSGPERCENT | RSGMAXPERCENT | CROSS_JOINS_ALLOWED | COLLECTHISTORY | ACCESSTIME | CONCURRENTSESS | JOBMAX | PWD_EXPIRY
+--------+----------------+-------+---------------------+----------+----------------+--------------+--------------+--------------+----------+---------------+---------------+---------------------+----------------+------------+----------------+--------+------------
+ 339111 | ADM_GRP        | ADMIN | 2022-10-17 09:37:24 |        0 |              0 |            0 | NONE         | NONE         | f        |            10 |           100 | NULL                |              0 |          0 |              0 |      0 |          0
+ 339791 | ANALYTICS      | ADMIN | 2022-10-17 09:37:25 |        0 |              0 |           90 | NONE         | NONE         | f        |            30 |           100 | NULL                |              0 |          0 |              0 |      0 |          0
+ 339797 | BUSINESS_USERS | ADMIN | 2022-10-17 09:37:25 |        0 |            300 |           60 | NONE         | NONE         | f        |            15 |            90 | NULL                |              0 |          0 |              0 |      0 |          0
+(3 rows)
+
+Sample from _V_ACL_DATA:
+Executing: Sample data from _V_ACL_DATA
+ ACLDB | ACLOBJECT | ACLOBJPRIV
+-------+-----------+------------
+     0 |         0 |          0
+     0 |         1 |    1014783
+     0 |      4902 |    1014783
+(3 rows)
+
+Sample from _V_SECURITY_LEVEL:
+Executing: Sample data from _V_SECURITY_LEVEL
+ LEVEL |    NAME    | DELIM
+-------+------------+-------
+     0 | PUBLIC     | f
+ 32767 | OMNI       | f
+   800 | RESTRICTED | f
+(3 rows)
+
+Sample from _V_SECURITY_CATEGORY:
+Executing: Sample data from _V_SECURITY_CATEGORY
+ ID | NAME  | DELIM
+----+-------+-------
+  0 | OMNI  | f
+  1 | RED   | f
+  2 | GREEN | f
+(3 rows)
+
