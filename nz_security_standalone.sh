@@ -763,18 +763,47 @@ analyze_admin_roles() {
     read -p "Press Enter to continue..."
 }
 
+# Fix the analyze_role_creation function - remove STRING_AGG
 analyze_role_creation() {
     print_section "Role Creation Analysis"
     
-    # Roles by grantor
+    # Roles by grantor - Fixed without STRING_AGG
     execute_sql "
     SELECT 
         ROLEGRANTOR,
-        COUNT(*) as ROLES_CREATED,
-        STRING_AGG(ROLENAME, ', ') as ROLES
+        COUNT(*) as ROLES_CREATED
     FROM _V_ROLE
     GROUP BY ROLEGRANTOR
     ORDER BY ROLES_CREATED DESC;" "Roles by Creator"
+    
+    # Show individual roles for each grantor
+    echo ""
+    print_section "Detailed Role List by Creator"
+    
+    # Get unique grantors
+    local grantors=()
+    while IFS= read -r grantor; do
+        if [[ -n "$grantor" ]]; then
+            grantors+=("$grantor")
+        fi
+    done < <($NZSQL_CMD -t -c "SELECT DISTINCT ROLEGRANTOR FROM _V_ROLE ORDER BY ROLEGRANTOR;" 2>/dev/null)
+    
+    # Show roles for each grantor
+    for grantor in "${grantors[@]}"; do
+        grantor=$(echo "$grantor" | tr -d ' ')
+        if [[ -n "$grantor" ]]; then
+            echo ""
+            echo -e "${CYAN}Roles created by: $grantor${NC}"
+            execute_sql "
+            SELECT 
+                ROLENAME,
+                CREATEDATE,
+                ASADMIN
+            FROM _V_ROLE
+            WHERE ROLEGRANTOR = '$grantor'
+            ORDER BY CREATEDATE DESC;" "Roles by $grantor"
+        fi
+    done
     
     # Recent role creation
     print_section "Recently Created Roles (Last 30 Days)"
@@ -851,18 +880,51 @@ analyze_database_acl() {
     read -p "Press Enter to continue..."
 }
 
+# Fix the analyze_database_sessions function - remove STRING_AGG
 analyze_database_sessions() {
     print_section "Current Database Sessions"
     
+    # Sessions by database without STRING_AGG
     execute_safe_sql "_V_SESSION" "
     SELECT 
         DBNAME,
         COUNT(*) as SESSION_COUNT,
-        COUNT(DISTINCT USERNAME) as UNIQUE_USERS,
-        STRING_AGG(DISTINCT STATUS, ', ') as STATUSES
+        COUNT(DISTINCT USERNAME) as UNIQUE_USERS
     FROM _V_SESSION
     GROUP BY DBNAME
     ORDER BY SESSION_COUNT DESC;" "Sessions by Database"
+    
+    # Show individual session details
+    echo ""
+    print_section "Detailed Session Information by Database"
+    
+    # Get unique databases with sessions
+    local databases=()
+    while IFS= read -r db; do
+        if [[ -n "$db" ]]; then
+            databases+=("$db")
+        fi
+    done < <($NZSQL_CMD -t -c "SELECT DISTINCT DBNAME FROM _V_SESSION ORDER BY DBNAME;" 2>/dev/null)
+    
+    # Show sessions for each database
+    for db in "${databases[@]}"; do
+        db=$(echo "$db" | tr -d ' ')
+        if [[ -n "$db" ]]; then
+            echo ""
+            echo -e "${CYAN}Sessions in Database: $db${NC}"
+            execute_safe_sql "_V_SESSION" "
+            SELECT 
+                USERNAME,
+                STATUS,
+                IPADDR,
+                CONNTIME,
+                COUNT(*) as USER_SESSIONS
+            FROM _V_SESSION
+            WHERE DBNAME = '$db'
+            GROUP BY USERNAME, STATUS, IPADDR, CONNTIME
+            ORDER BY USER_SESSIONS DESC;" "Sessions in $db"
+        fi
+    done
     
     echo ""
     read -p "Press Enter to continue..."
