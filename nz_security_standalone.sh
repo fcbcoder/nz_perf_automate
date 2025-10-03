@@ -263,19 +263,21 @@ analyze_user_permissions() {
     echo "2. All users summary"
     echo "3. Account status analysis"
     echo "4. User resource group assignments"
-    echo "5. Authentication method analysis"
-    echo "6. Return to security menu"
+    echo "5. Specific resource group analysis"  # NEW OPTION
+    echo "6. Authentication method analysis"
+    echo "7. Return to security menu"
     echo ""
     
-    read -p "Choose an option (1-6): " choice
+    read -p "Choose an option (1-7): " choice
     
     case $choice in
         1) analyze_specific_user ;;
         2) analyze_all_users_summary ;;
         3) analyze_account_status ;;
         4) analyze_user_resource_groups ;;
-        5) analyze_authentication_methods ;;
-        6) return ;;
+        5) analyze_specific_resource_group ;;  # NEW FUNCTION
+        6) analyze_authentication_methods ;;
+        7) return ;;
         *) print_error "Invalid option" ;;
     esac
 }
@@ -441,16 +443,46 @@ analyze_account_status() {
 analyze_user_resource_groups() {
     print_section "User Resource Group Analysis"
     
-    # Users by resource group
+    # Users by resource group - Fixed without STRING_AGG
     execute_sql "
     SELECT 
         USERESOURCEGRPNAME,
-        COUNT(*) as USER_COUNT,
-        STRING_AGG(USERNAME, ', ') as USERS
+        COUNT(*) as USER_COUNT
     FROM _V_USER
     WHERE USERESOURCEGRPNAME IS NOT NULL
     GROUP BY USERESOURCEGRPNAME
     ORDER BY USER_COUNT DESC;" "Users by Resource Group"
+    
+    # Show individual users in each group
+    echo ""
+    print_section "Detailed User Assignments by Resource Group"
+    
+    # Get unique resource groups
+    local resource_groups=()
+    while IFS= read -r group; do
+        if [[ -n "$group" ]]; then
+            resource_groups+=("$group")
+        fi
+    done < <($NZSQL_CMD -t -c "SELECT DISTINCT USERESOURCEGRPNAME FROM _V_USER WHERE USERESOURCEGRPNAME IS NOT NULL ORDER BY USERESOURCEGRPNAME;" 2>/dev/null)
+    
+    # Show users for each group
+    for group in "${resource_groups[@]}"; do
+        group=$(echo "$group" | tr -d ' ')
+        if [[ -n "$group" ]]; then
+            echo ""
+            echo -e "${CYAN}Users in Resource Group: $group${NC}"
+            execute_sql "
+            SELECT 
+                USERNAME,
+                CREATEDATE,
+                ACCT_LOCKED,
+                DEF_PRIORITY,
+                MAX_PRIORITY
+            FROM _V_USER
+            WHERE USERESOURCEGRPNAME = '$group'
+            ORDER BY USERNAME;" "Users in $group"
+        fi
+    done
     
     # Resource group details
     print_section "Resource Group Details"
@@ -467,6 +499,126 @@ analyze_user_resource_groups() {
         RSGMAXPERCENT
     FROM _V_GROUP
     ORDER BY GROUPNAME;" "Resource Group Settings"
+    
+    echo ""
+    read -p "Press Enter to continue..."
+}
+
+analyze_specific_resource_group() {
+    echo ""
+    echo "Available resource groups:"
+    execute_safe_sql "_V_GROUP" "
+    SELECT 
+        GROUPNAME,
+        OWNER,
+        CREATEDATE
+    FROM _V_GROUP
+    ORDER BY GROUPNAME;" "Available Resource Groups"
+    
+    echo ""
+    read -p "Enter resource group name to analyze: " groupname
+    
+    if [[ -z "$groupname" ]]; then
+        print_error "Group name cannot be empty"
+        return
+    fi
+    
+    groupname=$(echo "$groupname" | tr '[:lower:]' '[:upper:]')
+    
+    print_section "Resource Group Analysis for: $groupname"
+    
+    # Group details
+    execute_safe_sql "_V_GROUP" "
+    SELECT 
+        GROUPNAME,
+        OWNER,
+        CREATEDATE,
+        ROWLIMIT,
+        SESSIONTIMEOUT,
+        QUERYTIMEOUT,
+        DEF_PRIORITY,
+        MAX_PRIORITY,
+        GRORSGPERCENT,
+        RSGMAXPERCENT,
+        CROSS_JOINS_ALLOWED,
+        CONCURRENTSESS,
+        JOBMAX
+    FROM _V_GROUP
+    WHERE UPPER(GROUPNAME) = '$groupname';" "Resource Group Details"
+    
+    # Check if group exists
+    group_exists=$($NZSQL_CMD -t -c "SELECT COUNT(*) FROM _V_GROUP WHERE UPPER(GROUPNAME) = '$groupname';" 2>/dev/null | tr -d ' ')
+    
+    if [[ "$group_exists" -eq 0 ]]; then
+        print_warning "Resource group '$groupname' not found in the system"
+        echo ""
+        echo "Searching for similar group names..."
+        execute_safe_sql "_V_GROUP" "
+        SELECT GROUPNAME 
+        FROM _V_GROUP 
+        WHERE GROUPNAME LIKE '%${groupname}%' 
+        ORDER BY GROUPNAME;" "Similar Group Names"
+        return
+    fi
+    
+    print_success "Resource group '$groupname' found in the system"
+    
+    # Users assigned to this group
+    print_section "Users Assigned to Resource Group: $groupname"
+    execute_sql "
+    SELECT 
+        USERNAME,
+        OWNER,
+        CREATEDATE,
+        ACCT_LOCKED,
+        PWD_INVALID,
+        SESSIONTIMEOUT,
+        QUERYTIMEOUT,
+        DEF_PRIORITY,
+        MAX_PRIORITY
+    FROM _V_USER
+    WHERE UPPER(USERESOURCEGRPNAME) = '$groupname'
+    ORDER BY USERNAME;" "Users in $groupname"
+    
+    # Count statistics
+    user_count=$($NZSQL_CMD -t -c "SELECT COUNT(*) FROM _V_USER WHERE UPPER(USERESOURCEGRPNAME) = '$groupname';" 2>/dev/null | tr -d ' ')
+    locked_users=$($NZSQL_CMD -t -c "SELECT COUNT(*) FROM _V_USER WHERE UPPER(USERESOURCEGRPNAME) = '$groupname' AND ACCT_LOCKED = 't';" 2>/dev/null | tr -d ' ')
+    
+    echo ""
+    print_section "Group Statistics"
+    echo "Total users in group: $user_count"
+    echo "Locked users in group: $locked_users"
+    
+    # Current active sessions by users in this group
+    print_section "Current Active Sessions from Group Members"
+    execute_safe_sql "_V_SESSION" "
+    SELECT 
+        s.USERNAME,
+        s.DBNAME,
+        s.STATUS,
+        s.CONNTIME,
+        COUNT(*) as SESSION_COUNT
+    FROM _V_SESSION s
+    JOIN _V_USER u ON s.USERNAME = u.USERNAME
+    WHERE UPPER(u.USERESOURCEGRPNAME) = '$groupname'
+    GROUP BY s.USERNAME, s.DBNAME, s.STATUS, s.CONNTIME
+    ORDER BY SESSION_COUNT DESC;" "Active Sessions from Group"
+    
+    # Recent activity by group members
+    print_section "Recent Activity by Group Members (Last 7 Days)"
+    execute_safe_sql "_V_QRYHIST" "
+    SELECT 
+        q.QH_USER,
+        q.QH_DATABASE,
+        COUNT(*) as QUERY_COUNT,
+        MAX(q.QH_TSTART) as LAST_ACTIVITY
+    FROM _V_QRYHIST q
+    JOIN _V_USER u ON UPPER(q.QH_USER) = UPPER(u.USERNAME)
+    WHERE UPPER(u.USERESOURCEGRPNAME) = '$groupname'
+    AND q.QH_TSTART > NOW() - INTERVAL '7 DAYS'
+    GROUP BY q.QH_USER, q.QH_DATABASE
+    ORDER BY QUERY_COUNT DESC
+    LIMIT 20;" "Recent Activity by Group Members"
     
     echo ""
     read -p "Press Enter to continue..."
@@ -745,10 +897,11 @@ quick_permission_lookup() {
     echo "4. Who owns a specific database?"
     echo "5. Is user currently active (has sessions)?"
     echo "6. User's recent activity summary"
-    echo "7. Return to security menu"
+    echo "7. Who are the members of a resource group?"  # NEW OPTION
+    echo "8. Return to security menu"
     echo ""
     
-    read -p "Choose an option (1-7): " choice
+    read -p "Choose an option (1-8): " choice
     
     case $choice in
         1) quick_check_account_status ;;
@@ -757,7 +910,8 @@ quick_permission_lookup() {
         4) quick_check_database_owner ;;
         5) quick_check_user_sessions ;;
         6) quick_check_user_activity ;;
-        7) return ;;
+        7) quick_check_resource_group_members ;;  # NEW FUNCTION
+        8) return ;;
         *) print_error "Invalid option" ;;
     esac
 }
@@ -929,6 +1083,33 @@ quick_check_user_activity() {
     AND QH_TSTART > NOW() - INTERVAL '7 DAYS'
     GROUP BY QH_DATABASE
     ORDER BY QUERIES DESC;" "Recent Activity (7 days)"
+    
+    echo ""
+    read -p "Press Enter to continue..."
+}
+
+quick_check_resource_group_members() {
+    echo ""
+    read -p "Enter resource group name: " groupname
+    
+    groupname=$(echo "$groupname" | tr '[:lower:]' '[:upper:]')
+    
+    print_section "Members of Resource Group: $groupname"
+    
+    execute_sql "
+    SELECT 
+        USERNAME,
+        CREATEDATE,
+        ACCT_LOCKED,
+        PWD_INVALID
+    FROM _V_USER
+    WHERE UPPER(USERESOURCEGRPNAME) = '$groupname'
+    ORDER BY USERNAME;" "Group Members"
+    
+    # Count statistics
+    member_count=$($NZSQL_CMD -t -c "SELECT COUNT(*) FROM _V_USER WHERE UPPER(USERESOURCEGRPNAME) = '$groupname';" 2>/dev/null | tr -d ' ')
+    echo ""
+    echo "Total members: $member_count"
     
     echo ""
     read -p "Press Enter to continue..."
