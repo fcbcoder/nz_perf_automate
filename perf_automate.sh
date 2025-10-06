@@ -192,7 +192,7 @@ discover_system_views() {
         fi
     done
     
-    # Specific column checks for key views - UPDATED with new columns
+    # Specific column checks for key views - UPDATED with enhanced columns
     print_section "Key Column Availability Check"
     
     check_view_columns "_V_DATABASE" "DATABASE OWNER CREATEDATE OBJID"
@@ -207,6 +207,61 @@ discover_system_views() {
     # Try different ways to get system catalog info
     execute_sql "SELECT VERSION();" "Database Version" true
     execute_sql "SELECT CURRENT_USER, CURRENT_DATABASE, CURRENT_TIMESTAMP;" "Current Connection Info" true
+    
+    # Enhanced analysis recommendations based on available views
+    print_section "Performance Analysis Recommendations"
+    
+    local has_qrystat=false
+    local has_session_detail=false
+    
+    # Check for enhanced views
+    for view in "${available_views[@]}"; do
+        if [[ "$view" == "_V_QRYSTAT" ]]; then
+            has_qrystat=true
+        elif [[ "$view" == "_V_SESSION_DETAIL" ]]; then
+            has_session_detail=true
+        fi
+    done
+    
+    echo ""
+    echo "Based on available system views, here are the recommended analysis approaches:"
+    echo ""
+    
+    if [[ "$has_qrystat" == true && "$has_session_detail" == true ]]; then
+        print_success "✓ ENHANCED ANALYSIS AVAILABLE"
+        echo "  Both _V_QRYSTAT and _V_SESSION_DETAIL are available"
+        echo "  → Use Option 7 (Cost-Based Performance Analysis) for comprehensive insights"
+        echo "  → Plan ID tracking and process correlation available"
+        echo "  → Real-time cost and resource usage analysis enabled"
+    elif [[ "$has_qrystat" == true ]]; then
+        print_success "✓ INTERMEDIATE ANALYSIS AVAILABLE"
+        echo "  _V_QRYSTAT is available but _V_SESSION_DETAIL is not"
+        echo "  → Use Option 7 for cost-based analysis (limited session correlation)"
+        echo "  → Plan ID tracking available"
+        echo "  → Resource usage analysis enabled"
+    elif [[ "$has_session_detail" == true ]]; then
+        print_warning "⚠ BASIC ENHANCED SESSIONS AVAILABLE"
+        echo "  _V_SESSION_DETAIL is available but _V_QRYSTAT is not"
+        echo "  → Enhanced session analysis available in Option 4"
+        echo "  → Cost-based analysis will use _V_QRYHIST fallback"
+    else
+        print_warning "⚠ BASIC ANALYSIS ONLY"
+        echo "  Neither _V_QRYSTAT nor _V_SESSION_DETAIL are available"
+        echo "  → Using standard _V_SESSION and _V_QRYHIST views"
+        echo "  → Limited cost and session correlation analysis"
+    fi
+    
+    echo ""
+    echo "Recommended execution order:"
+    echo "1. Run this discovery (Option 1) - ✓ COMPLETED"
+    echo "2. System State Analysis (Option 2) - Basic system health"
+    echo "3. Active Sessions Analysis (Option 4) - Current activity"
+    if [[ "$has_qrystat" == true ]]; then
+        echo "4. Cost-Based Analysis (Option 7) - ENHANCED resource analysis"
+    else
+        echo "4. Query Performance Analysis (Option 6) - Historical analysis"
+    fi
+    echo "5. Lock Analysis (Option 5) - If performance issues detected"
 }
 
 check_view_columns() {
@@ -240,102 +295,44 @@ check_view_columns() {
     
     # Check specific expected columns
     echo -e "${CYAN}Checking expected columns:${NC}"
+    local available_count=0
+    local total_count=0
+    
     for column in $expected_columns; do
         echo -n "  Testing column $column... "
+        total_count=$((total_count + 1))
         if execute_sql "SELECT $column FROM $view_name LIMIT 1;" "Test column $column" false; then
             echo -e "${GREEN}✓ Available${NC}"
+            available_count=$((available_count + 1))
         else
             echo -e "${RED}✗ Not available${NC}"
         fi
     done
-}
-
-check_nzsql_availability() {
-    print_section "Checking nzsql availability"
     
-    # Check if nzsql is available
-    if ! command -v "$NZSQL_PATH" &> /dev/null; then
-        print_error "nzsql command not found at: $NZSQL_PATH"
-        echo ""
-        echo "Common nzsql locations:"
-        echo "  - /nz/bin/nzsql"
-        echo "  - /opt/nz/bin/nzsql"
-        echo "  - /usr/local/bin/nzsql"
-        echo ""
-        echo "Please set the correct path using:"
-        echo "  export NZSQL_PATH=/path/to/nzsql"
-        echo "  or update the configuration in this script"
-        return 1
-    fi
+    # Summary for this view
+    echo -e "  ${CYAN}Summary: $available_count of $total_count expected columns available${NC}"
     
-    print_success "nzsql found at: $NZSQL_PATH"
-    return 0
-}
-
-# Function to check if a column exists in a view
-column_exists() {
-    local view_name="$1"
-    local column_name="$2"
-    
-    execute_sql "SELECT $column_name FROM $view_name LIMIT 1;" "Test column $column_name in $view_name" false
-    return $?
-}
-
-# Function to build safe SQL with available columns
-build_safe_sql() {
-    local view_name="$1"
-    local base_columns="$2"
-    local optional_columns="$3"
-    
-    local safe_columns=""
-    local available_columns=""
-    
-    # Check base columns (required)
-    for column in $base_columns; do
-        if column_exists "$view_name" "$column"; then
-            if [[ -n "$available_columns" ]]; then
-                available_columns="$available_columns, $column"
+    # Special recommendations for key views
+    case $view_name in
+        "_V_QRYSTAT")
+            if [[ $available_count -ge 8 ]]; then
+                echo -e "  ${GREEN}→ Enhanced cost-based analysis fully supported${NC}"
+            elif [[ $available_count -ge 5 ]]; then
+                echo -e "  ${YELLOW}→ Basic cost-based analysis supported${NC}"
             else
-                available_columns="$column"
+                echo -e "  ${RED}→ Limited cost analysis - consider using _V_QRYHIST${NC}"
             fi
-        else
-            print_warning "Required column $column not found in $view_name"
-        fi
-    done
-    
-    # Check optional columns
-    for column in $optional_columns; do
-        if column_exists "$view_name" "$column"; then
-            if [[ -n "$available_columns" ]]; then
-                available_columns="$available_columns, $column"
+            ;;
+        "_V_SESSION_DETAIL")
+            if [[ $available_count -ge 6 ]]; then
+                echo -e "  ${GREEN}→ Enhanced session correlation fully supported${NC}"
+            elif [[ $available_count -ge 4 ]]; then
+                echo -e "  ${YELLOW}→ Basic session correlation supported${NC}"
             else
-                available_columns="$column"
+                echo -e "  ${RED}→ Limited session analysis - using basic _V_SESSION${NC}"
             fi
-        fi
-    done
-    
-    echo "$available_columns"
-}
-
-# Function to execute SQL with column validation
-execute_safe_sql() {
-    local view_name="$1"
-    local sql_template="$2"
-    local description="$3"
-    local show_errors="${4:-false}"
-    
-    # Simple column existence check by trying the query first
-    if execute_sql "$sql_template" "$description" "$show_errors"; then
-        return 0
-    else
-        print_warning "Query failed for $view_name - possibly due to missing columns"
-        print_warning "Attempting with basic columns only..."
-        
-        # Try a basic fallback query
-        local basic_sql="SELECT * FROM $view_name LIMIT 5"
-        execute_sql "$basic_sql" "$description (Basic Fallback)" "$show_errors"
-        return $?
-    fi
+            ;;
+    esac
 }
 
 #=============================================================================
@@ -1346,7 +1343,104 @@ run_complete_check() {
     read -p "Press Enter to continue..."
 }
 
-# Update the enhanced_cost_analysis function to include plan IDs and process IDs
+# Add these missing functions after the existing utility functions
+
+# Analyze nzsession output for patterns
+analyze_nzsession_output() {
+    local output_file="$1"
+    
+    print_section "nzsession Output Analysis"
+    
+    if [[ -s "$output_file" ]]; then
+        # Count total lines (approximate sessions)
+        local line_count=$(wc -l < "$output_file")
+        echo "Total output lines: $line_count"
+        
+        # Look for common patterns in the output
+        echo ""
+        echo "Looking for patterns in session data..."
+        
+        # Check for session IDs (numbers in first column typically)
+        local session_ids=$(grep -E "^[[:space:]]*[0-9]+" "$output_file" 2>/dev/null | wc -l)
+        if [[ "$session_ids" -gt 0 ]]; then
+            echo "Approximate active sessions: $session_ids"
+        fi
+        
+        # Check for status patterns
+        echo ""
+        echo "Session status patterns (if available):"
+        grep -E "(Active|Running|Idle|Waiting|Blocked)" "$output_file" 2>/dev/null | head -5
+        
+        # Check for user patterns
+        echo ""
+        echo "User patterns (if available):"
+        grep -E "([A-Za-z0-9_-]+@|USER|Username)" "$output_file" 2>/dev/null | head -5
+        
+        # Check for database patterns
+        echo ""
+        echo "Database patterns (if available):"
+        grep -E "(DB:|Database|SYSTEM|PROD)" "$output_file" 2>/dev/null | head -5
+        
+        # Look for error messages
+        if grep -qi "error\|fail\|invalid" "$output_file"; then
+            print_warning "Potential errors detected in nzsession output:"
+            grep -i "error\|fail\|invalid" "$output_file" | head -3
+        fi
+    fi
+}
+
+#=============================================================================
+# Enhanced Cost-Based Query Analysis
+#=============================================================================
+
+check_cost_based_performance() {
+    print_header "COST-BASED QUERY PERFORMANCE ANALYSIS"
+    
+    # Check if enhanced views are available
+    print_section "Checking Enhanced Query Analysis Views"
+    
+    local has_qrystat=false
+    local has_session_detail=false
+    
+    if execute_sql "SELECT COUNT(*) FROM _V_QRYSTAT LIMIT 1;" "Test _V_QRYSTAT" false; then
+        print_success "_V_QRYSTAT available - Enhanced cost analysis enabled"
+        has_qrystat=true
+    else
+        print_warning "_V_QRYSTAT not available - Using basic query analysis"
+    fi
+    
+    if execute_sql "SELECT COUNT(*) FROM _V_SESSION_DETAIL LIMIT 1;" "Test _V_SESSION_DETAIL" false; then
+        print_success "_V_SESSION_DETAIL available - Enhanced session analysis enabled"
+        has_session_detail=true
+    else
+        print_warning "_V_SESSION_DETAIL not available - Using basic session analysis"
+    fi
+    
+    if [[ "$has_qrystat" == true && "$has_session_detail" == true ]]; then
+        # Enhanced analysis with both views
+        enhanced_cost_analysis
+        
+        # Offer additional analysis options
+        echo ""
+        print_section "Additional Analysis Options"
+        echo "1. Analyze specific Plan ID"
+        echo "2. Continue to next section"
+        echo ""
+        read -p "Choose an option (1-2): " analysis_choice
+        
+        case $analysis_choice in
+            1) analyze_specific_plan ;;
+            2) ;;
+        esac
+        
+    elif [[ "$has_qrystat" == true ]]; then
+        # Analysis with _V_QRYSTAT only
+        qrystat_only_analysis
+    else
+        # Fallback to basic analysis
+        basic_cost_analysis
+    fi
+}
 
 enhanced_cost_analysis() {
     print_section "Enhanced Cost-Based Analysis (using _V_QRYSTAT + _V_SESSION_DETAIL)"
@@ -1581,7 +1675,6 @@ enhanced_cost_analysis() {
     LIMIT 20;" "Plan Efficiency Analysis"
 }
 
-# Update qrystat_only_analysis function to include new columns
 qrystat_only_analysis() {
     print_section "Query Statistics Analysis (using _V_QRYSTAT only)"
     
@@ -1638,64 +1731,26 @@ qrystat_only_analysis() {
     LIMIT 20;" "Plan Reuse Analysis"
 }
 
-# Update the column check function to include new columns
-check_view_columns() {
-    local view_name="$1"
-    local expected_columns="$2"
+basic_cost_analysis() {
+    print_section "Basic Cost Analysis (using _V_QRYHIST)"
     
-    echo ""
-    echo -e "${YELLOW}Checking columns in $view_name...${NC}"
-    
-    # Check if view exists first
-    if ! execute_sql "SELECT COUNT(*) FROM $view_name LIMIT 1;" "Test $view_name existence" false; then
-        echo -e "${RED}✗ View $view_name not available${NC}"
-        return
-    fi
-    
-    echo -e "${GREEN}✓ View $view_name is available${NC}"
-    
-    # Get actual column structure
-    echo "Actual columns in $view_name:"
-    if execute_sql "
-    SELECT ATTNAME 
-    FROM _V_ATTRIBUTE 
-    WHERE OBJNAME = '$view_name' 
-    ORDER BY ATTNAME;" "Get columns for $view_name" false; then
-        echo ""
-    else
-        # Fallback method
-        echo "Using fallback method to check columns..."
-        $NZSQL_CMD -c "SELECT * FROM $view_name LIMIT 0;" 2>/dev/null
-    fi
-    
-    # Check specific expected columns
-    echo -e "${CYAN}Checking expected columns:${NC}"
-    for column in $expected_columns; do
-        echo -n "  Testing column $column... "
-        if execute_sql "SELECT $column FROM $view_name LIMIT 1;" "Test column $column" false; then
-            echo -e "${GREEN}✓ Available${NC}"
-        else
-            echo -e "${RED}✗ Not available${NC}"
-        fi
-    done
-}
-
-# Update the column checks in discover_system_views function
-discover_system_views() {
-    # ... existing code ...
-    
-    # Specific column checks for key views - UPDATED with new columns
-    print_section "Key Column Availability Check"
-    
-    check_view_columns "_V_DATABASE" "DATABASE OWNER CREATEDATE OBJID"
-    check_view_columns "_V_DISK" "HW_HWID HW_ROLE HW_DISKSZ HW_DISKMODEL HW_STATE"
-    check_view_columns "_V_SESSION" "ID USERNAME DBNAME STATUS IPADDR CONNTIME PRIORITY"
-    check_view_columns "_V_SESSION_DETAIL" "SESSION_ID CLIENT_OS_USERNAME SESSION_USERNAME DBNAME PRIORITY_NAME SCHEMA SESSION_PID"
-    check_view_columns "_V_QRYHIST" "QH_SESSIONID QH_USER QH_DATABASE QH_TSUBMIT QH_TSTART QH_TEND QH_SQL QH_PRIORITY"
-    check_view_columns "_V_QRYSTAT" "QS_SESSIONID QS_PLANID QS_SQL QS_TSUBMIT QS_TSTART QS_ESTCOST QS_ESTMEM QS_ESTDISK QS_RESROWS QS_RESBYTES QS_RUNTIME"
-    check_view_columns "_V_CPU" "HOST CPU_NUMBER CPU_TYPE CPU_SPEED_MHZ CPU_UTILIZATION_PCT"
-    
-    # ... rest of existing code ...
+    # Fallback to original query history analysis with cost focus
+    execute_sql "
+    SELECT 
+        QH_SESSIONID,
+        QH_USER,
+        QH_DATABASE,
+        QH_TSTART,
+        QH_TEND,
+        QH_ESTCOST,
+        QH_RESROWS,
+        ROUND(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)), 2) AS EXECUTION_SECONDS,
+        SUBSTR(QH_SQL, 1, 100) AS SQL_PREVIEW
+    FROM _V_QRYHIST
+    WHERE QH_TEND > NOW() - INTERVAL '24 HOURS'
+    AND QH_ESTCOST > 0
+    ORDER BY QH_ESTCOST DESC
+    LIMIT ${TOP_QUERIES_LIMIT};" "Top Queries by Cost (Last 24h)"
 }
 
 # Add a new function for specific plan analysis
@@ -1786,52 +1841,305 @@ analyze_specific_plan() {
     read -p "Press Enter to continue..."
 }
 
-# Add new menu option to main cost-based analysis
-check_cost_based_performance() {
-    print_header "COST-BASED QUERY PERFORMANCE ANALYSIS"
+#=============================================================================
+# Enhanced Session Analysis Functions
+#=============================================================================
+
+check_active_sessions() {
+    print_header "ACTIVE SESSIONS AND SQL ANALYSIS"
     
-    # Check if enhanced views are available
-    print_section "Checking Enhanced Query Analysis Views"
+    # First run the enhanced cost-based analysis
+    check_cost_based_performance
     
-    local has_qrystat=false
-    local has_session_detail=false
+    # Use nzsession utility for enhanced session analysis
+    print_section "Enhanced Session Analysis using nzsession"
     
-    if execute_sql "SELECT COUNT(*) FROM _V_QRYSTAT LIMIT 1;" "Test _V_QRYSTAT" false; then
-        print_success "_V_QRYSTAT available - Enhanced cost analysis enabled"
-        has_qrystat=true
+    # Check if nzsession utility is available
+    local nzsession_path="/nz/bin/nzsession"
+    local alt_paths=(
+        "/opt/nz/bin/nzsession"
+        "/usr/local/nz/bin/nzsession"
+        "/nz/support/bin/nzsession"
+        "/nz/kit/bin/nzsession"
+    )
+    
+    local found_nzsession=""
+    
+    if [[ -f "$nzsession_path" && -x "$nzsession_path" ]]; then
+        found_nzsession="$nzsession_path"
     else
-        print_warning "_V_QRYSTAT not available - Using basic query analysis"
+        for path in "${alt_paths[@]}"; do
+            if [[ -f "$path" && -x "$path" ]]; then
+                found_nzsession="$path"
+                break
+            fi
+        done
     fi
     
+    if [[ -n "$found_nzsession" ]]; then
+        print_success "Using nzsession at: $found_nzsession"
+        intelligent_nzsession_analysis "$found_nzsession"
+    else
+        print_warning "nzsession utility not found - using system view analysis only"
+    fi
+    
+    # Enhanced Active Sessions using system views with cost information
+    print_section "Current Sessions Analysis (Enhanced with Cost Data)"
+    
+    # Check if _V_SESSION_DETAIL is available for enhanced session info
     if execute_sql "SELECT COUNT(*) FROM _V_SESSION_DETAIL LIMIT 1;" "Test _V_SESSION_DETAIL" false; then
-        print_success "_V_SESSION_DETAIL available - Enhanced session analysis enabled"
-        has_session_detail=true
+        execute_sql "
+        SELECT 
+            SESSION_ID,
+            CLIENT_OS_USERNAME,
+            SESSION_USERNAME,
+            DBNAME,
+            SCHEMA,
+            PRIORITY_NAME,
+            STATUS,
+            IPADDR,
+            CONNTIME
+        FROM _V_SESSION_DETAIL
+        ORDER BY CONNTIME DESC
+        LIMIT ${TOP_SESSIONS_LIMIT};" "Current Sessions Overview (Enhanced)"
+        
+        # Sessions by client OS user
+               print_section "Sessions by Client OS User"
+        execute_sql "
+        SELECT 
+            CLIENT_OS_USERNAME,
+            COUNT(*) AS SESSION_COUNT,
+            COUNT(DISTINCT DBNAME) AS DATABASES_USED,
+            MAX(CONNTIME) AS LATEST_CONNECTION
+        FROM _V_SESSION_DETAIL
+        WHERE CLIENT_OS_USERNAME IS NOT NULL
+        GROUP BY CLIENT_OS_USERNAME
+        ORDER BY SESSION_COUNT DESC
+        LIMIT 15;" "Session Summary by Client OS User"
+        
     else
-        print_warning "_V_SESSION_DETAIL not available - Using basic session analysis"
+        # Fallback to basic _V_SESSION
+        execute_sql "
+        SELECT 
+            ID,
+            USERNAME,
+            DBNAME,
+            STATUS,
+            IPADDR,
+            CONNTIME,
+            PRIORITY,
+            COMMAND,
+            CLIENT_OS_USERNAME
+        FROM _V_SESSION
+        ORDER BY CONNTIME DESC
+        LIMIT ${TOP_SESSIONS_LIMIT};" "Current Sessions Overview (Basic)"
     fi
     
-    if [[ "$has_qrystat" == true && "$has_session_detail" == true ]]; then
-        # Enhanced analysis with both views
-        enhanced_cost_analysis
-        
-        # Offer additional analysis options
-        echo ""
-        print_section "Additional Analysis Options"
-        echo "1. Analyze specific Plan ID"
-        echo "2. Continue to next section"
-        echo ""
-        read -p "Choose an option (1-2): " analysis_choice
-        
-        case $analysis_choice in
-            1) analyze_specific_plan ;;
-            2) ;;
-        esac
-        
-    elif [[ "$has_qrystat" == true ]]; then
-        # Analysis with _V_QRYSTAT only
-        qrystat_only_analysis
+    # Session status summary
+    print_section "Session Status Summary"
+    execute_sql "
+    SELECT 
+        STATUS,
+        COUNT(*) AS SESSION_COUNT
+    FROM _V_SESSION
+    GROUP BY STATUS
+    ORDER BY SESSION_COUNT DESC;" "Session Status Distribution"
+    
+    # Sessions by database with cost correlation if available
+    print_section "Sessions by Database (with Cost Correlation)"
+    execute_sql "
+    SELECT 
+        s.DBNAME,
+        COUNT(DISTINCT s.ID) AS SESSION_COUNT,
+        COUNT(DISTINCT s.USERNAME) AS UNIQUE_USERS,
+        COALESCE(ROUND(AVG(q.QS_ESTCOST), 2), 0) AS AVG_QUERY_COST
+    FROM _V_SESSION s
+    LEFT JOIN _V_QRYSTAT q ON s.ID = q.QS_SESSIONID
+    GROUP BY s.DBNAME
+    ORDER BY AVG_QUERY_COST DESC, SESSION_COUNT DESC;" "Database Connection Summary with Cost"
+}
+
+#=============================================================================
+# Query Performance Analysis Functions
+#=============================================================================
+
+check_query_performance() {
+    print_header "QUERY PERFORMANCE ANALYSIS"
+    
+    # Check if we should prioritize _V_QRYSTAT or _V_QRYHIST
+    local use_qrystat=false
+    if execute_sql "SELECT COUNT(*) FROM _V_QRYSTAT LIMIT 1;" "Test _V_QRYSTAT availability" false; then
+        use_qrystat=true
+        print_success "Using _V_QRYSTAT for enhanced real-time analysis"
     else
-        # Fallback to basic analysis
-        basic_cost_analysis
+        print_warning "Using _V_QRYHIST for historical analysis"
+    fi
+    
+    if [[ "$use_qrystat" == true ]]; then
+        # Enhanced analysis using _V_QRYSTAT for real-time data
+        print_section "Current Long-Running Queries (Real-time from _V_QRYSTAT)"
+        execute_sql "
+        SELECT 
+            QS_SESSIONID,
+            QS_PLANID,
+            SUBSTRING(QS_SQL, 1, 100) AS SQL_PREVIEW,
+            QS_TSTART,
+            ROUND(EXTRACT(EPOCH FROM (NOW() - QS_TSTART))/3600, 2) AS HOURS_RUNNING,
+            QS_ESTCOST,
+            QS_ESTMEM,
+            QS_ESTDISK,
+            QS_RUNTIME
+        FROM _V_QRYSTAT
+        WHERE QS_TSTART < NOW() - INTERVAL '${LONG_RUNNING_QUERY_HOURS} HOURS'
+        AND QS_RUNTIME IS NULL  -- Still running
+        ORDER BY QS_TSTART
+        LIMIT ${TOP_QUERIES_LIMIT};" "Current Long-Running Queries (Real-time)"
+        
+        # Resource-intensive queries currently running
+        print_section "High-Cost Queries Currently Running"
+        execute_sql "
+        SELECT 
+            QS_SESSIONID,
+            QS_PLANID,
+            QS_ESTCOST,
+            QS_ESTMEM,
+            QS_ESTDISK,
+            ROUND(EXTRACT(EPOCH FROM (NOW() - QS_TSTART))/60, 1) AS MINUTES_RUNNING,
+            SUBSTRING(QS_SQL, 1, 80) AS SQL_PREVIEW
+        FROM _V_QRYSTAT
+        WHERE QS_RUNTIME IS NULL  -- Still running
+        AND QS_ESTCOST > 100      -- High estimated cost
+        ORDER BY QS_ESTCOST DESC
+        LIMIT ${TOP_QUERIES_LIMIT};" "High-Cost Running Queries"
+        
+        # Completed queries with performance metrics
+        print_section "Recently Completed Query Performance"
+        execute_sql "
+        SELECT 
+            QS_SESSIONID,
+            QS_PLANID,
+            QS_ESTCOST,
+            QS_RUNTIME,
+            ROUND(QS_ESTCOST / NULLIF(QS_RUNTIME, 0), 2) AS COST_PER_SECOND,
+            QS_RESROWS,
+            QS_RESBYTES,
+            SUBSTRING(QS_SQL, 1, 80) AS SQL_PREVIEW
+        FROM _V_QRYSTAT
+        WHERE QS_RUNTIME IS NOT NULL  -- Completed
+        AND QS_RUNTIME > 30           -- Ran for more than 30 seconds
+        ORDER BY QS_RUNTIME DESC
+        LIMIT ${TOP_QUERIES_LIMIT};" "Recently Completed Slow Queries"
+        
+    else
+        # Fallback to historical analysis using _V_QRYHIST
+        print_section "Long-Running Query Analysis (Historical)"
+        
+        # Current long-running queries
+        execute_sql "
+        SELECT 
+            QH_SESSIONID,
+            QH_USER,
+            QH_DATABASE,
+            QH_TSTART,
+            ROUND(EXTRACT(EPOCH FROM (NOW() - QH_TSTART))/3600, 2) AS HOURS_RUNNING,
+            QH_PRIORITY,
+            SUBSTR(QH_SQL, 1, 100) AS SQL_PREVIEW
+        FROM _V_QRYHIST
+        WHERE QH_TEND IS NULL
+        AND QH_TSTART < NOW() - INTERVAL '${LONG_RUNNING_QUERY_HOURS} HOURS'
+        ORDER BY QH_TSTART
+        LIMIT ${TOP_QUERIES_LIMIT};" "Current Long-Running Queries (${LONG_RUNNING_QUERY_HOURS}+ hours)"
+        
+        # Query performance summary from history
+        print_section "Query Performance Summary (Last 24 Hours)"
+        execute_sql "
+        SELECT 
+            QH_DATABASE,
+            COUNT(*) as QUERY_COUNT,
+            ROUND(AVG(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART))), 2) as AVG_DURATION_SEC,
+            ROUND(MAX(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART))), 2) as MAX_DURATION_SEC,
+            COUNT(DISTINCT QH_USER) as UNIQUE_USERS
+        FROM _V_QRYHIST
+        WHERE QH_TEND > NOW() - INTERVAL '24 HOURS'
+        AND QH_TEND IS NOT NULL
+        GROUP BY QH_DATABASE
+        ORDER BY AVG_DURATION_SEC DESC;" "Query Performance by Database"
+        
+        # Top resource consuming queries
+        print_section "Top Resource Consuming Queries (Last 24 Hours)"
+        execute_sql "
+        SELECT 
+            QH_SESSIONID,
+            QH_USER,
+            QH_DATABASE,
+            QH_TSTART,
+            QH_TEND,
+            ROUND(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)), 2) AS DURATION_SEC,
+            QH_RESROWS,
+            QH_PRIORITY,
+            SUBSTR(QH_SQL, 1, 150) AS SQL_PREVIEW
+        FROM _V_QRYHIST
+        WHERE QH_TEND > NOW() - INTERVAL '24 HOURS'
+        AND QH_TEND IS NOT NULL
+        AND EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)) > 30
+        ORDER BY DURATION_SEC DESC
+        LIMIT ${TOP_QUERIES_LIMIT};" "Slowest Queries (Last 24h)"
+    fi
+    
+    # Common analysis regardless of view used
+    print_section "Query Activity by User (Last 24 Hours)"
+    if [[ "$use_qrystat" == true ]]; then
+        # Enhanced user analysis with _V_QRYSTAT
+        execute_sql "
+        SELECT 
+            s.CLIENT_OS_USERNAME,
+            s.SESSION_USERNAME,
+            COUNT(*) as QUERY_COUNT,
+            ROUND(AVG(q.QS_ESTCOST), 2) as AVG_EST_COST,
+            ROUND(AVG(q.QS_RUNTIME), 2) as AVG_RUNTIME_SEC,
+            COUNT(DISTINCT q.QS_PLANID) as UNIQUE_PLANS,
+            MAX(q.QS_TSTART) as LAST_QUERY_TIME
+        FROM _V_QRYSTAT q
+        LEFT JOIN _V_SESSION_DETAIL s ON s.SESSION_ID = q.QS_SESSIONID
+        WHERE q.QS_TSTART > NOW() - INTERVAL '24 HOURS'
+        AND s.CLIENT_OS_USERNAME IS NOT NULL
+        GROUP BY s.CLIENT_OS_USERNAME, s.SESSION_USERNAME
+        ORDER BY QUERY_COUNT DESC
+        LIMIT 15;" "Most Active Users (Enhanced)"
+    else
+        # Basic user analysis with _V_QRYHIST
+        execute_sql "
+        SELECT 
+            QH_USER,
+            COUNT(*) as QUERY_COUNT,
+            ROUND(AVG(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART))), 2) as AVG_DURATION_SEC,
+            SUM(QH_RESROWS) as TOTAL_ROWS_RETURNED,
+            MAX(QH_TSTART) as LAST_QUERY_TIME
+        FROM _V_QRYHIST
+        WHERE QH_TEND > NOW() - INTERVAL '24 HOURS'
+        AND QH_TEND IS NOT NULL
+        GROUP BY QH_USER
+        ORDER BY QUERY_COUNT DESC
+        LIMIT 15;" "Most Active Users"
+    fi
+    
+    # Performance recommendations
+    print_section "Performance Analysis Summary"
+    
+    if [[ "$use_qrystat" == true ]]; then
+        echo -e "${GREEN}Using _V_QRYSTAT for real-time analysis provides:${NC}"
+        echo "✓ Current running query monitoring"
+        echo "✓ Plan ID tracking for optimization opportunities"
+        echo "✓ Cost vs runtime efficiency analysis"
+        echo "✓ Resource usage patterns"
+        echo ""
+        echo -e "${CYAN}Recommendation: Use Option 7 (Cost-Based Analysis) for deeper insights${NC}"
+    else
+        echo -e "${YELLOW}Using _V_QRYHIST for historical analysis provides:${NC}"
+        echo "✓ Completed query performance trends"
+        echo "✓ User activity patterns"
+        echo "✓ Long-term performance monitoring"
+        echo ""
+        echo -e "${CYAN}Recommendation: Consider upgrading to access _V_QRYSTAT for real-time monitoring${NC}"
     fi
 }
