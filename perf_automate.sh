@@ -1343,461 +1343,672 @@ run_complete_check() {
     read -p "Press Enter to continue..."
 }
 
-# Add these missing functions right before the main function
+# Add these missing functions right after line 820 (after the analyze_nzsession_output function)
 
-#=============================================================================
-# Missing Utility Functions
-#=============================================================================
-
-# Safe SQL execution for views that may not exist
-execute_safe_sql() {
-    local view_name="$1"
-    local sql="$2"
-    local description="$3"
+# Analyze nzsession output for patterns
+analyze_nzsession_output() {
+    local output_file="$1"
     
-    # First check if the view exists
-    if execute_sql "SELECT COUNT(*) FROM $view_name LIMIT 1;" "Test $view_name" false; then
-        execute_sql "$sql" "$description" true
-    else
-        print_warning "$view_name not available - skipping $description"
-    fi
-}
-
-# Check if a column exists in a view
-column_exists() {
-    local view_name="$1"
-    local column_name="$2"
+    print_section "nzsession Output Analysis"
     
-    # Try to select the column
-    if execute_sql "SELECT $column_name FROM $view_name LIMIT 1;" "Test column $column_name" false; then
-        return 0
-    else
-        return 1
-    fi
-}
-
-# Test connection function
-test_connection() {
-    print_section "Testing Connection"
-    if execute_sql "SELECT CURRENT_TIMESTAMP;" "Connection Test" false; then
-        print_success "Connection test successful"
-        return 0
-    else
-        print_error "Connection test failed"
-        return 1
-    fi
-}
-
-# Configuration settings function
-configure_settings() {
-    print_header "CONFIGURATION SETTINGS"
-    
-    echo "Current settings:"
-    echo "1. Host: ${NETEZZA_HOST:-'(not set - local connection)'}"
-    echo "2. Database: $NETEZZA_DB"
-    echo "3. Username: $NETEZZA_USER"
-    echo "4. nzsql Path: $NZSQL_PATH"
-    echo "5. Long Query Threshold: $LONG_RUNNING_QUERY_HOURS hours"
-    echo "6. Top Results Limit: $TOP_QUERIES_LIMIT queries"
-    echo ""
-    
-    read -p "Enter Netezza host (leave blank for local): " new_host
-    if [[ -n "$new_host" ]]; then
-        NETEZZA_HOST="$new_host"
-        export NETEZZA_HOST
-    fi
-    
-    read -p "Enter database name (current: $NETEZZA_DB): " new_db
-    if [[ -n "$new_db" ]]; then
-        NETEZZA_DB="$new_db"
-        export NETEZZA_DB
-    fi
-    
-    read -p "Enter username (current: $NETEZZA_USER): " new_user
-    if [[ -n "$new_user" ]]; then
-        NETEZZA_USER="$new_user"
-        export NETEZZA_USER
-    fi
-    
-    read -p "Enter nzsql path (current: $NZSQL_PATH): " new_nzsql_path
-    if [[ -n "$new_nzsql_path" ]]; then
-        NZSQL_PATH="$new_nzsql_path"
-        export NZSQL_PATH
-    fi
-    
-    read -p "Enter long query threshold in hours (current: $LONG_RUNNING_QUERY_HOURS): " new_threshold
-    if [[ "$new_threshold" =~ ^[0-9]+$ ]]; then
-        LONG_RUNNING_QUERY_HOURS="$new_threshold"
-    fi
-    
-    read -p "Enter top results limit (current: $TOP_QUERIES_LIMIT): " new_limit
-    if [[ "$new_limit" =~ ^[0-9]+$ ]]; then
-        TOP_QUERIES_LIMIT="$new_limit"
-    fi
-    
-    # Rebuild nzsql command
-    NZSQL_CMD=$(build_nzsql_cmd)
-    
-    print_success "Configuration updated successfully!"
-    
-    # Test new connection
-    test_connection
-}
-
-# View log file function
-view_log_file() {
-    print_header "LOG FILE VIEWER"
-    
-    if [[ -f "$LOG_FILE" ]]; then
-        echo "Log file: $LOG_FILE"
-        echo "File size: $(du -h "$LOG_FILE" 2>/dev/null | cut -f1 || echo "Unknown")"
+    if [[ -s "$output_file" ]]; then
+        # Count total lines (approximate sessions)
+        local line_count=$(wc -l < "$output_file")
+        echo "Total output lines: $line_count"
+        
+        # Look for common patterns in the output
         echo ""
-        echo "Last 50 lines:"
-        echo "=============================================================="
-        tail -50 "$LOG_FILE"
-        echo "=============================================================="
+        echo "Looking for patterns in session data..."
         
-        echo ""
-        echo "Options:"
-        echo "1. View entire log file"
-        echo "2. Clear log file"
-        echo "3. Return to main menu"
-        
-        read -p "Choose an option (1-3): " log_choice
-        
-        case $log_choice in
-            1)
-                if command -v less >/dev/null 2>&1; then
-                    less "$LOG_FILE"
-                else
-                    cat "$LOG_FILE"
-                fi
-                ;;
-            2)
-                read -p "Are you sure you want to clear the log file? (y/n): " clear_confirm
-                if [[ "$clear_confirm" =~ ^[Yy] ]]; then
-                    > "$LOG_FILE"
-                    print_success "Log file cleared"
-                fi
-                ;;
-            3)
-                return
-                ;;
-        esac
-    else
-        print_warning "Log file not found: $LOG_FILE"
-    fi
-}
-
-#=============================================================================
-# Interactive SQL Explain Plan Analysis Functions
-#=============================================================================
-
-interactive_explain_plan() {
-    print_header "INTERACTIVE SQL EXPLAIN PLAN ANALYSIS"
-    
-    while true; do
-        print_section "Explain Plan Options"
-        echo "1. Enter SQL for explain plan"
-        echo "2. Analyze recent query from history"
-        echo "3. Analyze long-running query"
-        echo "4. Return to main menu"
-        echo ""
-        
-        read -p "Choose an option (1-4): " explain_choice
-        
-        case $explain_choice in
-            1)
-                interactive_sql_explain
-                ;;
-            2)
-                explain_from_history
-                ;;
-            3)
-                explain_long_running
-                ;;
-            4)
-                return
-                ;;
-            *)
-                print_error "Invalid option. Please choose 1-4."
-                ;;
-        esac
-        
-        echo ""
-        read -p "Press Enter to continue..."
-    done
-}
-
-interactive_sql_explain() {
-    print_section "Enter SQL for Explain Plan Analysis"
-    
-    echo "Enter your SQL query (end with semicolon on a new line):"
-    echo "Or type 'quit' to return to menu"
-    echo ""
-    
-    local sql=""
-    local line=""
-    
-    while IFS= read -r line; do
-        if [[ "$line" == "quit" ]]; then
-            return
+        # Check for session IDs (numbers in first column typically)
+        local session_ids=$(grep -E "^[[:space:]]*[0-9]+" "$output_file" 2>/dev/null | wc -l)
+        if [[ "$session_ids" -gt 0 ]]; then
+            echo "Approximate active sessions: $session_ids"
         fi
         
-        sql="$sql$line"$'\n'
+        # Check for status patterns
+        echo ""
+        echo "Session status patterns (if available):"
+        grep -E "(Active|Running|Idle|Waiting|Blocked)" "$output_file" 2>/dev/null | head -5
         
-        # Check if line ends with semicolon (end of SQL)
-        if [[ "$line" =~ \;[[:space:]]*$ ]]; then
-            break
+        # Check for user patterns
+        echo ""
+        echo "User patterns (if available):"
+        grep -E "([A-Za-z0-9_-]+@|USER|Username)" "$output_file" 2>/dev/null | head -5
+        
+        # Check for database patterns
+        echo ""
+        echo "Database patterns (if available):"
+        grep -E "(DB:|Database|SYSTEM|PROD)" "$output_file" 2>/dev/null | head -5
+        
+        # Look for error messages
+        if grep -qi "error\|fail\|invalid" "$output_file"; then
+            print_warning "Potential errors detected in nzsession output:"
+            grep -i "error\|fail\|invalid" "$output_file" | head -3
         fi
-    done
-    
-    if [[ -z "$sql" || "$sql" =~ ^[[:space:]]*$ ]]; then
-        print_error "No SQL entered"
-        return
     fi
-    
-    # Get target database
-    echo ""
-    echo "Current database: $NETEZZA_DB"
-    read -p "Enter target database (or press Enter to use current): " target_db
-    if [[ -z "$target_db" ]]; then
-        target_db="$NETEZZA_DB"
-    fi
-    
-    # Get target schema (optional)
-    read -p "Enter target schema (optional, press Enter to skip): " target_schema
-    
-    echo ""
-    print_section "SQL Analysis and Explain Plan"
-    echo "SQL to analyze:"
-    echo "=============================================================="
-    echo "$sql"
-    echo "=============================================================="
-    
-    # Analyze SQL for potential issues
-    analyze_sql_for_issues "$sql"
-    
-    echo ""
-    print_section "Explain Plan Generation"
-    
-    # Generate explain plan
-    generate_explain_plan "$sql" "$target_db" "$target_schema"
 }
 
-explain_from_history() {
-    print_section "Analyze Query from History"
+#=============================================================================
+# Enhanced Session Analysis Functions
+#=============================================================================
+
+check_active_sessions() {
+    print_header "ACTIVE SESSIONS AND SQL ANALYSIS"
     
-    # Show recent queries
-    echo "Recent queries (last 2 hours):"
-    echo "=============================================================="
+    # First run the enhanced cost-based analysis if available
+    local has_qrystat=false
+    if execute_sql "SELECT COUNT(*) FROM _V_QRYSTAT LIMIT 1;" "Test _V_QRYSTAT availability" false; then
+        has_qrystat=true
+        print_success "Enhanced cost analysis available - incorporating _V_QRYSTAT data"
+    else
+        print_warning "Enhanced cost analysis not available - using basic session analysis"
+    fi
     
-    local history_file="/tmp/netezza_recent_queries_$(date +%Y%m%d_%H%M%S).txt"
+    # Use nzsession utility for enhanced session analysis
+    print_section "Enhanced Session Analysis using nzsession"
     
-    $NZSQL_CMD -c "
+    # Check if nzsession utility is available
+    local nzsession_path="/nz/bin/nzsession"
+    local alt_paths=(
+        "/opt/nz/bin/nzsession"
+        "/usr/local/nz/bin/nzsession"
+        "/nz/support/bin/nzsession"
+        "/nz/kit/bin/nzsession"
+    )
+    
+    local found_nzsession=""
+    
+    if [[ -f "$nzsession_path" && -x "$nzsession_path" ]]; then
+        found_nzsession="$nzsession_path"
+    else
+        for path in "${alt_paths[@]}"; do
+            if [[ -f "$path" && -x "$path" ]]; then
+                found_nzsession="$path"
+                break
+            fi
+        done
+    fi
+    
+    if [[ -n "$found_nzsession" ]]; then
+        print_success "Using nzsession at: $found_nzsession"
+        intelligent_nzsession_analysis "$found_nzsession"
+    else
+        print_warning "nzsession utility not found - using system view analysis only"
+    fi
+    
+    # Enhanced Active Sessions using system views with cost information
+    print_section "Current Sessions Analysis (Enhanced with Cost Data)"
+    
+    # Check if _V_SESSION_DETAIL is available for enhanced session info
+    if execute_sql "SELECT COUNT(*) FROM _V_SESSION_DETAIL LIMIT 1;" "Test _V_SESSION_DETAIL" false; then
+        execute_sql "
+        SELECT 
+            SESSION_ID,
+            CLIENT_OS_USERNAME,
+            SESSION_USERNAME,
+            DBNAME,
+            SCHEMA,
+            PRIORITY_NAME,
+            STATUS,
+            IPADDR,
+            CONNTIME
+        FROM _V_SESSION_DETAIL
+        ORDER BY CONNTIME DESC
+        LIMIT ${TOP_SESSIONS_LIMIT};" "Current Sessions Overview (Enhanced)"
+        
+        # Sessions by client OS user
+        print_section "Sessions by Client OS User"
+        execute_sql "
+        SELECT 
+            CLIENT_OS_USERNAME,
+            COUNT(*) AS SESSION_COUNT,
+            COUNT(DISTINCT DBNAME) AS DATABASES_USED,
+            MAX(CONNTIME) AS LATEST_CONNECTION
+        FROM _V_SESSION_DETAIL
+        WHERE CLIENT_OS_USERNAME IS NOT NULL
+        GROUP BY CLIENT_OS_USERNAME
+        ORDER BY SESSION_COUNT DESC
+        LIMIT 15;" "Session Summary by Client OS User"
+        
+    else
+        # Fallback to basic _V_SESSION
+        execute_sql "
+        SELECT 
+            ID,
+            USERNAME,
+            DBNAME,
+            STATUS,
+            IPADDR,
+            CONNTIME,
+            PRIORITY,
+            COMMAND,
+            CLIENT_OS_USERNAME
+        FROM _V_SESSION
+        ORDER BY CONNTIME DESC
+        LIMIT ${TOP_SESSIONS_LIMIT};" "Current Sessions Overview (Basic)"
+    fi
+    
+    # Session status summary
+    print_section "Session Status Summary"
+    execute_sql "
     SELECT 
-        ROW_NUMBER() OVER (ORDER BY QH_TSTART DESC) as NUM,
+        STATUS,
+        COUNT(*) AS SESSION_COUNT
+    FROM _V_SESSION
+    GROUP BY STATUS
+    ORDER BY SESSION_COUNT DESC;" "Session Status Distribution"
+    
+    # Sessions by database with cost correlation if available
+    print_section "Sessions by Database (with Cost Correlation)"
+    if [[ "$has_qrystat" == true ]]; then
+        execute_sql "
+        SELECT 
+            s.DBNAME,
+            COUNT(DISTINCT s.ID) AS SESSION_COUNT,
+            COUNT(DISTINCT s.USERNAME) AS UNIQUE_USERS,
+            COALESCE(ROUND(AVG(q.QS_ESTCOST), 2), 0) AS AVG_QUERY_COST
+        FROM _V_SESSION s
+        LEFT JOIN _V_QRYSTAT q ON s.ID = q.QS_SESSIONID
+        GROUP BY s.DBNAME
+        ORDER BY AVG_QUERY_COST DESC, SESSION_COUNT DESC;" "Database Connection Summary with Cost"
+    else
+        execute_sql "
+        SELECT 
+            DBNAME,
+            COUNT(*) AS SESSION_COUNT,
+            COUNT(DISTINCT USERNAME) AS UNIQUE_USERS
+        FROM _V_SESSION
+        WHERE DBNAME IS NOT NULL
+        GROUP BY DBNAME
+        ORDER BY SESSION_COUNT DESC;" "Database Connection Summary (Basic)"
+    fi
+}
+
+#=============================================================================
+# Query Performance Analysis Functions
+#=============================================================================
+
+check_query_performance() {
+    print_header "QUERY PERFORMANCE ANALYSIS"
+    
+    # Check if we should prioritize _V_QRYSTAT or _V_QRYHIST
+    local use_qrystat=false
+    if execute_sql "SELECT COUNT(*) FROM _V_QRYSTAT LIMIT 1;" "Test _V_QRYSTAT availability" false; then
+        use_qrystat=true
+        print_success "Using _V_QRYSTAT for enhanced real-time analysis"
+    else
+        print_warning "Using _V_QRYHIST for historical analysis"
+    fi
+    
+    if [[ "$use_qrystat" == true ]]; then
+        # Enhanced analysis using _V_QRYSTAT for real-time data
+        print_section "Current Long-Running Queries (Real-time from _V_QRYSTAT)"
+        execute_sql "
+        SELECT 
+            QS_SESSIONID,
+            QS_PLANID,
+            SUBSTRING(QS_SQL, 1, 100) AS SQL_PREVIEW,
+            QS_TSTART,
+            ROUND(EXTRACT(EPOCH FROM (NOW() - QS_TSTART))/3600, 2) AS HOURS_RUNNING,
+            QS_ESTCOST,
+            QS_ESTMEM,
+            QS_ESTDISK,
+            QS_RUNTIME
+        FROM _V_QRYSTAT
+        WHERE QS_TSTART < NOW() - INTERVAL '${LONG_RUNNING_QUERY_HOURS} HOURS'
+        AND QS_RUNTIME IS NULL  -- Still running
+        ORDER BY QS_TSTART
+        LIMIT ${TOP_QUERIES_LIMIT};" "Current Long-Running Queries (Real-time)"
+        
+        # Resource-intensive queries currently running
+        print_section "High-Cost Queries Currently Running"
+        execute_sql "
+        SELECT 
+            QS_SESSIONID,
+            QS_PLANID,
+            QS_ESTCOST,
+            QS_ESTMEM,
+            QS_ESTDISK,
+            ROUND(EXTRACT(EPOCH FROM (NOW() - QS_TSTART))/60, 1) AS MINUTES_RUNNING,
+            SUBSTRING(QS_SQL, 1, 80) AS SQL_PREVIEW
+        FROM _V_QRYSTAT
+        WHERE QS_RUNTIME IS NULL  -- Still running
+        AND QS_ESTCOST > 100      -- High estimated cost
+        ORDER BY QS_ESTCOST DESC
+        LIMIT ${TOP_QUERIES_LIMIT};" "High-Cost Running Queries"
+        
+        # Completed queries with performance metrics
+        print_section "Recently Completed Query Performance"
+        execute_sql "
+        SELECT 
+            QS_SESSIONID,
+            QS_PLANID,
+            QS_ESTCOST,
+            QS_RUNTIME,
+            ROUND(QS_ESTCOST / NULLIF(QS_RUNTIME, 0), 2) AS COST_PER_SECOND,
+            QS_RESROWS,
+            QS_RESBYTES,
+            SUBSTRING(QS_SQL, 1, 80) AS SQL_PREVIEW
+        FROM _V_QRYSTAT
+        WHERE QS_RUNTIME IS NOT NULL  -- Completed
+        AND QS_RUNTIME > 30           -- Ran for more than 30 seconds
+        ORDER BY QS_RUNTIME DESC
+        LIMIT ${TOP_QUERIES_LIMIT};" "Recently Completed Slow Queries"
+        
+    else
+        # Fallback to historical analysis using _V_QRYHIST
+        print_section "Long-Running Query Analysis (Historical)"
+        
+        # Current long-running queries
+        execute_sql "
+        SELECT 
+            QH_SESSIONID,
+            QH_USER,
+            QH_DATABASE,
+            QH_TSTART,
+            QH_TEND,
+            QH_ESTCOST,
+            QH_RESROWS,
+            ROUND(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)), 2) AS EXECUTION_SECONDS,
+            SUBSTR(QH_SQL, 1, 100) AS SQL_PREVIEW
+        FROM _V_QRYHIST
+        WHERE QH_TEND IS NULL
+        AND QH_TSTART < NOW() - INTERVAL '${LONG_RUNNING_QUERY_HOURS} HOURS'
+        ORDER BY QH_TSTART
+        LIMIT ${TOP_QUERIES_LIMIT};" "Current Long-Running Queries (${LONG_RUNNING_QUERY_HOURS}+ hours)"
+        
+        # Query performance summary from history
+        print_section "Query Performance Summary (Last 24 Hours)"
+        execute_sql "
+        SELECT 
+            QH_DATABASE,
+            COUNT(*) as QUERY_COUNT,
+            ROUND(AVG(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART))), 2) as AVG_DURATION_SEC,
+            ROUND(MAX(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART))), 2) as MAX_DURATION_SEC,
+            COUNT(DISTINCT QH_USER) as UNIQUE_USERS
+        FROM _V_QRYHIST
+        WHERE QH_TEND > NOW() - INTERVAL '24 HOURS'
+        AND QH_TEND IS NOT NULL
+        GROUP BY QH_DATABASE
+        ORDER BY AVG_DURATION_SEC DESC;" "Query Performance by Database"
+        
+        # Top resource consuming queries
+        print_section "Top Resource Consuming Queries (Last 24 Hours)"
+        execute_sql "
+        SELECT 
+            QH_SESSIONID,
+            QH_USER,
+            QH_DATABASE,
+            QH_TSTART,
+            QH_TEND,
+            ROUND(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)), 2) AS DURATION_SEC,
+            QH_RESROWS,
+            QH_PRIORITY,
+            SUBSTR(QH_SQL, 1, 150) AS SQL_PREVIEW
+        FROM _V_QRYHIST
+        WHERE QH_TEND > NOW() - INTERVAL '24 HOURS'
+        AND QH_TEND IS NOT NULL
+        AND EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)) > 30
+        ORDER BY DURATION_SEC DESC
+        LIMIT ${TOP_QUERIES_LIMIT};" "Slowest Queries (Last 24h)"
+    fi
+    
+    # Common analysis regardless of view used
+    print_section "Query Activity by User (Last 24 Hours)"
+    if [[ "$use_qrystat" == true ]]; then
+        # Enhanced user analysis with _V_QRYSTAT
+        execute_sql "
+        SELECT 
+            s.CLIENT_OS_USERNAME,
+            s.SESSION_USERNAME,
+            COUNT(*) as QUERY_COUNT,
+            ROUND(AVG(q.QS_ESTCOST), 2) as AVG_EST_COST,
+            ROUND(AVG(q.QS_RUNTIME), 2) as AVG_RUNTIME_SEC,
+            COUNT(DISTINCT q.QS_PLANID) as UNIQUE_PLANS,
+            MAX(q.QS_TSTART) as LAST_QUERY_TIME
+        FROM _V_QRYSTAT q
+        LEFT JOIN _V_SESSION_DETAIL s ON s.SESSION_ID = q.QS_SESSIONID
+        WHERE q.QS_TSTART > NOW() - INTERVAL '24 HOURS'
+        AND s.CLIENT_OS_USERNAME IS NOT NULL
+        GROUP BY s.CLIENT_OS_USERNAME, s.SESSION_USERNAME
+        ORDER BY QUERY_COUNT DESC
+        LIMIT 15;" "Most Active Users (Enhanced)"
+    else
+        # Basic user analysis with _V_QRYHIST
+        execute_sql "
+        SELECT 
+            QH_USER,
+            COUNT(*) as QUERY_COUNT,
+            ROUND(AVG(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART))), 2) as AVG_DURATION_SEC,
+            SUM(QH_RESROWS) as TOTAL_ROWS_RETURNED,
+            MAX(QH_TSTART) as LAST_QUERY_TIME
+        FROM _V_QRYHIST
+        WHERE QH_TEND > NOW() - INTERVAL '24 HOURS'
+        AND QH_TEND IS NOT NULL
+        GROUP BY QH_USER
+        ORDER BY QUERY_COUNT DESC
+        LIMIT 15;" "Most Active Users"
+    fi
+    
+    # Performance recommendations
+    print_section "Performance Analysis Summary"
+    
+    if [[ "$use_qrystat" == true ]]; then
+        echo -e "${GREEN}Using _V_QRYSTAT for real-time analysis provides:${NC}"
+        echo "✓ Current running query monitoring"
+        echo "✓ Plan ID tracking for optimization opportunities"
+        echo "✓ Cost vs runtime efficiency analysis"
+        echo "✓ Resource usage patterns"
+        echo ""
+        echo -e "${CYAN}Recommendation: Use Option 7 (Cost-Based Analysis) for deeper insights${NC}"
+    else
+        echo -e "${YELLOW}Using _V_QRYHIST for historical analysis provides:${NC}"
+        echo "✓ Completed query performance trends"
+        echo "✓ User activity patterns"
+        echo "✓ Long-term performance monitoring"
+        echo ""
+        echo -e "${CYAN}Recommendation: Consider upgrading to access _V_QRYSTAT for real-time monitoring${NC}"
+    fi
+}
+
+#=============================================================================
+# Enhanced Cost-Based Query Analysis
+#=============================================================================
+
+check_cost_based_performance() {
+    print_header "COST-BASED QUERY PERFORMANCE ANALYSIS"
+    
+    # Check if enhanced views are available
+    print_section "Checking Enhanced Query Analysis Views"
+    
+    local has_qrystat=false
+    local has_session_detail=false
+    
+    if execute_sql "SELECT COUNT(*) FROM _V_QRYSTAT LIMIT 1;" "Test _V_QRYSTAT" false; then
+        print_success "_V_QRYSTAT available - Enhanced cost analysis enabled"
+        has_qrystat=true
+    else
+        print_warning "_V_QRYSTAT not available - Using basic query analysis"
+    fi
+    
+    if execute_sql "SELECT COUNT(*) FROM _V_SESSION_DETAIL LIMIT 1;" "Test _V_SESSION_DETAIL" false; then
+        print_success "_V_SESSION_DETAIL available - Enhanced session analysis enabled"
+        has_session_detail=true
+    else
+        print_warning "_V_SESSION_DETAIL not available - Using basic session analysis"
+    fi
+    
+    if [[ "$has_qrystat" == true && "$has_session_detail" == true ]]; then
+        # Enhanced analysis with both views
+        enhanced_cost_analysis
+        
+        # Offer additional analysis options
+        echo ""
+        print_section "Additional Analysis Options"
+        echo "1. Analyze specific Plan ID"
+        echo "2. Continue to next section"
+        echo ""
+        read -p "Choose an option (1-2): " analysis_choice
+        
+        case $analysis_choice in
+            1) analyze_specific_plan ;;
+            2) ;;
+        esac
+        
+    elif [[ "$has_qrystat" == true ]]; then
+        # Analysis with _V_QRYSTAT only
+        qrystat_only_analysis
+    else
+        # Fallback to basic analysis
+        basic_cost_analysis
+    fi
+}
+
+enhanced_cost_analysis() {
+    print_section "Enhanced Cost-Based Analysis (using _V_QRYSTAT + _V_SESSION_DETAIL)"
+    
+    # Top queries by estimated cost - ENHANCED with plan and process IDs
+    execute_sql "
+    SELECT 
+        b.CLIENT_OS_USERNAME, 
+        b.SESSION_USERNAME, 
+        a.QS_SESSIONID, 
+        a.QS_PLANID,                    -- NEW: Plan ID
+        b.SESSION_PID,                  -- NEW: Session Process ID
+        b.PRIORITY_NAME, 
+        b.DBNAME, 
+        b.SCHEMA,
+        SUBSTRING(a.QS_SQL, 1, 100) AS SQL_PREVIEW,
+        a.QS_TSUBMIT, 
+        a.QS_TSTART, 
+        a.QS_ESTCOST, 
+        a.QS_ESTMEM, 
+        a.QS_ESTDISK, 
+        a.QS_RESROWS, 
+        a.QS_RESBYTES,
+        a.QS_RUNTIME                    -- NEW: Runtime if available
+    FROM _V_QRYSTAT a
+    LEFT JOIN _V_SESSION_DETAIL b ON b.SESSION_ID = a.QS_SESSIONID
+    WHERE b.DBNAME IS NOT NULL AND b.DBNAME != 'null'
+    ORDER BY a.QS_ESTCOST DESC
+    LIMIT ${TOP_QUERIES_LIMIT};" "Top Queries by Estimated Cost (Enhanced)"
+    
+    # Top queries by memory usage - ENHANCED
+    print_section "Top Queries by Estimated Memory Usage"
+    execute_sql "
+    SELECT 
+        b.CLIENT_OS_USERNAME, 
+        b.SESSION_USERNAME, 
+        a.QS_SESSIONID, 
+        a.QS_PLANID,                    -- NEW: Plan ID
+        b.SESSION_PID,                  -- NEW: Session Process ID
+        b.PRIORITY_NAME, 
+        b.DBNAME,
+        a.QS_ESTMEM,
+        a.QS_ESTCOST,
+        a.QS_ESTDISK,
+        SUBSTRING(a.QS_SQL, 1, 80) AS SQL_PREVIEW,
+        a.QS_TSTART,
+        a.QS_RUNTIME                    -- NEW: Runtime if available
+    FROM _V_QRYSTAT a
+    LEFT JOIN _V_SESSION_DETAIL b ON b.SESSION_ID = a.QS_SESSIONID
+    WHERE b.DBNAME IS NOT NULL AND b.DBNAME != 'null'
+    AND a.QS_ESTMEM > 0
+    ORDER BY a.QS_ESTMEM DESC
+    LIMIT ${TOP_QUERIES_LIMIT};" "Top Queries by Memory Usage (Enhanced)"
+    
+    # NEW: Analysis by Plan ID (find queries using the same execution plan)
+    print_section "Query Analysis by Plan ID (Same Execution Plans)"
+    execute_sql "
+    SELECT 
+        a.QS_PLANID,
+        COUNT(*) AS QUERY_COUNT,
+        COUNT(DISTINCT a.QS_SESSIONID) AS UNIQUE_SESSIONS,
+        COUNT(DISTINCT b.CLIENT_OS_USERNAME) AS UNIQUE_USERS,
+        ROUND(AVG(a.QS_ESTCOST), 2) AS AVG_EST_COST,
+        ROUND(MAX(a.QS_ESTCOST), 2) AS MAX_EST_COST,
+        ROUND(AVG(a.QS_ESTMEM), 2) AS AVG_EST_MEM,
+        ROUND(AVG(a.QS_ESTDISK), 2) AS AVG_EST_DISK,
+        MAX(a.QS_TSTART) AS LAST_EXECUTION,
+        SUBSTRING(MAX(a.QS_SQL), 1, 100) AS SAMPLE_SQL
+    FROM _V_QRYSTAT a
+    LEFT JOIN _V_SESSION_DETAIL b ON b.SESSION_ID = a.QS_SESSIONID
+    WHERE b.DBNAME IS NOT NULL AND b.DBNAME != 'null'
+    AND a.QS_PLANID IS NOT NULL
+    GROUP BY a.QS_PLANID
+    HAVING COUNT(*) > 1
+    ORDER BY QUERY_COUNT DESC, AVG_EST_COST DESC
+    LIMIT 20;" "Queries Grouped by Plan ID"
+    
+    # Analysis by client OS user - ENHANCED
+    print_section "Query Cost Analysis by Client OS User (Enhanced)"
+    execute_sql "
+    SELECT 
+        b.CLIENT_OS_USERNAME,
+        COUNT(*) AS QUERY_COUNT,
+        COUNT(DISTINCT a.QS_SESSIONID) AS UNIQUE_SESSIONS,
+        COUNT(DISTINCT b.SESSION_PID) AS UNIQUE_PROCESSES,
+        COUNT(DISTINCT a.QS_PLANID) AS UNIQUE_PLANS,
+        ROUND(AVG(a.QS_ESTCOST), 2) AS AVG_EST_COST,
+        ROUND(MAX(a.QS_ESTCOST), 2) AS MAX_EST_COST,
+        ROUND(SUM(a.QS_ESTCOST), 2) AS TOTAL_EST_COST,
+        ROUND(AVG(a.QS_ESTMEM), 2) AS AVG_EST_MEM,
+        ROUND(AVG(a.QS_ESTDISK), 2) AS AVG_EST_DISK,
+        MAX(a.QS_TSTART) AS LAST_ACTIVITY
+    FROM _V_QRYSTAT a
+    LEFT JOIN _V_SESSION_DETAIL b ON b.SESSION_ID = a.QS_SESSIONID
+    WHERE b.DBNAME IS NOT NULL AND b.DBNAME != 'null'
+    AND b.CLIENT_OS_USERNAME IS NOT NULL
+    GROUP BY b.CLIENT_OS_USERNAME
+    ORDER BY TOTAL_EST_COST DESC
+    LIMIT 15;" "Enhanced Cost Analysis by Client OS User"
+}
+
+qrystat_only_analysis() {
+    print_section "Query Statistics Analysis (using _V_QRYSTAT only)"
+    
+    # Top queries by cost - ENHANCED
+    execute_sql "
+    SELECT 
+        QS_SESSIONID,
+        QS_PLANID,                      -- NEW: Plan ID
+        QS_ESTCOST,
+        QS_ESTMEM,
+        QS_ESTDISK,
+        QS_RESROWS,
+        QS_RESBYTES,
+        QS_RUNTIME,                     -- NEW: Runtime
+        QS_TSTART,
+        SUBSTRING(QS_SQL, 1, 100) AS SQL_PREVIEW
+    FROM _V_QRYSTAT
+    WHERE QS_ESTCOST > 0
+    ORDER BY QS_ESTCOST DESC
+    LIMIT ${TOP_QUERIES_LIMIT};" "Top Queries by Estimated Cost (Enhanced)"
+    
+    # Resource usage summary - ENHANCED
+    execute_sql "
+    SELECT 
+        COUNT(*) AS TOTAL_QUERIES,
+        COUNT(DISTINCT QS_PLANID) AS UNIQUE_PLANS,      -- NEW: Unique plans
+        COUNT(DISTINCT QS_SESSIONID) AS UNIQUE_SESSIONS,
+        ROUND(AVG(QS_ESTCOST), 2) AS AVG_EST_COST,
+        ROUND(MAX(QS_ESTCOST), 2) AS MAX_EST_COST,
+        ROUND(AVG(QS_ESTMEM), 2) AS AVG_EST_MEM,
+        ROUND(MAX(QS_ESTMEM), 2) AS MAX_EST_MEM,
+        ROUND(AVG(QS_ESTDISK), 2) AS AVG_EST_DISK,
+        ROUND(MAX(QS_ESTDISK), 2) AS MAX_EST_DISK,
+        ROUND(AVG(QS_RUNTIME), 2) AS AVG_RUNTIME_SEC,   -- NEW: Average runtime
+        ROUND(MAX(QS_RUNTIME), 2) AS MAX_RUNTIME_SEC     -- NEW: Max runtime
+    FROM _V_QRYSTAT;" "Enhanced Query Resource Usage Summary"
+}
+
+basic_cost_analysis() {
+    print_section "Basic Cost Analysis (using _V_QRYHIST)"
+    
+    # Fallback to original query history analysis with cost focus
+    execute_sql "
+    SELECT 
         QH_SESSIONID,
         QH_USER,
         QH_DATABASE,
         QH_TSTART,
-        CASE 
-            WHEN QH_TEND IS NULL THEN 'RUNNING'
-            ELSE ROUND(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)), 2)::TEXT
-        END AS DURATION_SEC,
-        SUBSTR(QH_SQL, 1, 80) AS SQL_PREVIEW
+        QH_TEND,
+        QH_ESTCOST,
+        QH_RESROWS,
+        ROUND(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)), 2) AS EXECUTION_SECONDS,
+        SUBSTR(QH_SQL, 1, 100) AS SQL_PREVIEW
     FROM _V_QRYHIST
-    WHERE QH_TSTART > NOW() - INTERVAL '2 HOURS'
-    ORDER BY QH_TSTART DESC
-    LIMIT 20;" > "$history_file" 2>/dev/null
-    
-    if [[ -s "$history_file" ]]; then
-        cat "$history_file"
-        echo "=============================================================="
-        
-        echo ""
-        read -p "Enter query number to analyze (1-20): " query_num
-        
-        if [[ "$query_num" =~ ^[0-9]+$ ]] && [[ "$query_num" -ge 1 ]] && [[ "$query_num" -le 20 ]]; then
-            # Get the full SQL for the selected query
-            local selected_sql_file="/tmp/netezza_selected_sql_$(date +%Y%m%d_%H%M%S).txt"
-            
-            $NZSQL_CMD -c "
-            SELECT QH_SQL, QH_DATABASE
-            FROM (
-                SELECT 
-                    ROW_NUMBER() OVER (ORDER BY QH_TSTART DESC) as NUM,
-                    QH_SQL,
-                    QH_DATABASE
-                FROM _V_QRYHIST
-                WHERE QH_TSTART > NOW() - INTERVAL '2 HOURS'
-                ORDER BY QH_TSTART DESC
-                LIMIT 20
-            ) numbered_queries
-            WHERE NUM = $query_num;" > "$selected_sql_file" 2>/dev/null
-            
-            if [[ -s "$selected_sql_file" ]]; then
-                local query_info=$(cat "$selected_sql_file")
-                local target_db=$(echo "$query_info" | tail -1 | awk -F'|' '{print $2}' | tr -d ' ')
-                local full_sql=$(echo "$query_info" | tail -1 | awk -F'|' '{print $1}')
-                
-                if [[ -n "$full_sql" && "$full_sql" != "QH_SQL" ]]; then
-                    echo ""
-                    print_section "Selected Query Analysis"
-                    echo "Database: $target_db"
-                    echo "SQL:"
-                    echo "=============================================================="
-                    echo "$full_sql"
-                    echo "=============================================================="
-                    
-                    # Analyze and explain
-                    analyze_sql_for_issues "$full_sql"
-                    echo ""
-                    generate_explain_plan "$full_sql" "$target_db" ""
-                else
-                    print_error "Could not retrieve full SQL for selected query"
-                fi
-            else
-                print_error "Could not retrieve query details"
-            fi
-            
-            rm -f "$selected_sql_file"
-        else
-            print_error "Invalid query number"
-        fi
-    else
-        print_warning "No recent queries found"
-    fi
-    
-    rm -f "$history_file"
+    WHERE QH_TEND > NOW() - INTERVAL '24 HOURS'
+    AND QH_ESTCOST > 0
+    ORDER BY QH_ESTCOST DESC
+    LIMIT ${TOP_QUERIES_LIMIT};" "Top Queries by Cost (Last 24h)"
 }
 
-explain_long_running() {
-    print_section "Analyze Long-Running Queries"
+# Add a new function for specific plan analysis
+analyze_specific_plan() {
+    print_section "Specific Plan Analysis"
     
-    echo "Current long-running queries:"
-    echo "=============================================================="
+    echo ""
+    read -p "Enter Plan ID to analyze (or press Enter to see available plans): " plan_id
     
-    local long_running_file="/tmp/netezza_longrun_$(date +%Y%m%d_%H%M%S).txt"
-    
-    $NZSQL_CMD -c "
-    SELECT 
-        ROW_NUMBER() OVER (ORDER BY QH_TSTART) as NUM,
-        QH_SESSIONID,
-        QH_USER,
-        QH_DATABASE,
-        QH_TSTART,
-        ROUND(EXTRACT(EPOCH FROM (NOW() - QH_TSTART))/3600, 2) AS HOURS_RUNNING,
-        SUBSTR(QH_SQL, 1, 80) AS SQL_PREVIEW
-    FROM _V_QRYHIST
-    WHERE QH_TEND IS NULL
-    AND QH_TSTART < NOW() - INTERVAL '30 MINUTES'
-    ORDER BY QH_TSTART
-    LIMIT 10;" > "$long_running_file" 2>/dev/null
-    
-    if [[ -s "$long_running_file" ]]; then
-        cat "$long_running_file"
-        echo "=============================================================="
+    if [[ -z "$plan_id" ]]; then
+        # Show available plans
+        execute_sql "
+        SELECT 
+            QS_PLANID,
+            COUNT(*) AS EXECUTION_COUNT,
+            ROUND(AVG(QS_ESTCOST), 2) AS AVG_COST,
+            MAX(QS_TSTART) AS LAST_EXECUTION,
+            SUBSTRING(MAX(QS_SQL), 1, 80) AS SAMPLE_SQL
+        FROM _V_QRYSTAT
+        WHERE QS_PLANID IS NOT NULL
+        GROUP BY QS_PLANID
+        ORDER BY EXECUTION_COUNT DESC
+        LIMIT 20;" "Available Plans"
         
         echo ""
-        read -p "Enter query number to analyze (1-10): " query_num
-        
-        if [[ "$query_num" =~ ^[0-9]+$ ]] && [[ "$query_num" -ge 1 ]] && [[ "$query_num" -le 10 ]]; then
-            # Get the full SQL for the selected long-running query
-            local selected_longrun_file="/tmp/netezza_selected_longrun_$(date +%Y%m%d_%H%M%S).txt"
-            
-            $NZSQL_CMD -c "
-            SELECT QH_SQL, QH_DATABASE, QH_SESSIONID
-            FROM (
-                SELECT 
-                    ROW_NUMBER() OVER (ORDER BY QH_TSTART) as NUM,
-                    QH_SQL,
-                    QH_DATABASE,
-                    QH_SESSIONID
-                FROM _V_QRYHIST
-                WHERE QH_TEND IS NULL
-                AND QH_TSTART < NOW() - INTERVAL '30 MINUTES'
-                ORDER BY QH_TSTART
-                LIMIT 10
-            ) numbered_queries
-            WHERE NUM = $query_num;" > "$selected_longrun_file" 2>/dev/null
-            
-            if [[ -s "$selected_longrun_file" ]]; then
-                local query_info=$(cat "$selected_longrun_file")
-                local target_db=$(echo "$query_info" | tail -1 | awk -F'|' '{print $2}' | tr -d ' ')
-                local session_id=$(echo "$query_info" | tail -1 | awk -F'|' '{print $3}' | tr -d ' ')
-                local full_sql=$(echo "$query_info" | tail -1 | awk -F'|' '{print $1}')
-                
-                if [[ -n "$full_sql" && "$full_sql" != "QH_SQL" ]]; then
-                    echo ""
-                    print_section "Long-Running Query Analysis"
-                    echo "Database: $target_db"
-                    echo "Session ID: $session_id"
-                    echo "SQL:"
-                    echo "=============================================================="
-                    echo "$full_sql"
-                    echo "=============================================================="
-                    
-                    # Show session details
-                    execute_sql "
-                    SELECT 
-                        ID,
-                        USERNAME,
-                        DBNAME,
-                        STATUS,
-                        IPADDR,
-                        CONNTIME,
-                        PRIORITY,
-                        COMMAND,
-                        CLIENT_OS_USERNAME
-                    FROM _V_SESSION
-                    WHERE ID = $session_id;" "Session Details for Long-Running Query"
-                    
-                    # Analyze and explain
-                    analyze_sql_for_issues "$full_sql"
-                    echo ""
-                    generate_explain_plan "$full_sql" "$target_db" ""
-                    
-                    # Offer to terminate the query
-                    echo ""
-                    read -p "This query has been running for a long time. Terminate it? (y/n): " terminate_choice
-                    if [[ "$terminate_choice" =~ ^[Yy] ]]; then
-                        echo "Attempting to terminate session $session_id..."
-                        if execute_sql "ABORT SESSION $session_id;" "Terminate Long-Running Session" true; then
-                            print_success "Session $session_id terminated"
-                        else
-                            print_error "Failed to terminate session $session_id"
-                        fi
-                    fi
-                else
-                    print_error "Could not retrieve full SQL for selected query"
-                fi
-            else
-                print_error "Could not retrieve query details"
-            fi
-            
-            rm -f "$selected_longrun_file"
-        else
-            print_error "Invalid query number"
-        fi
-    else
-        print_warning "No long-running queries found"
+        read -p "Enter Plan ID to analyze: " plan_id
     fi
     
-    rm -f "$long_running_file"
+    if [[ -n "$plan_id" ]]; then
+        print_section "Detailed Analysis for Plan ID: $plan_id"
+        
+        # Plan execution details
+        execute_sql "
+        SELECT 
+            a.QS_SESSIONID,
+            b.CLIENT_OS_USERNAME,
+            b.SESSION_USERNAME,
+            b.SESSION_PID,
+            b.DBNAME,
+            b.SCHEMA,
+            a.QS_ESTCOST,
+            a.QS_ESTMEM,
+            a.QS_ESTDISK,
+            a.QS_RUNTIME,
+            a.QS_TSTART,
+            SUBSTRING(a.QS_SQL, 1, 100) AS SQL_PREVIEW
+        FROM _V_QRYSTAT a
+        LEFT JOIN _V_SESSION_DETAIL b ON b.SESSION_ID = a.QS_SESSIONID
+        WHERE a.QS_PLANID = '$plan_id'
+        ORDER BY a.QS_TSTART DESC
+        LIMIT 20;" "Plan $plan_id Execution History"
+        
+        # Plan statistics
+        execute_sql "
+        SELECT 
+            COUNT(*) AS TOTAL_EXECUTIONS,
+            COUNT(DISTINCT QS_SESSIONID) AS UNIQUE_SESSIONS,
+            ROUND(AVG(QS_ESTCOST), 2) AS AVG_EST_COST,
+            ROUND(MIN(QS_ESTCOST), 2) AS MIN_EST_COST,
+            ROUND(MAX(QS_ESTCOST), 2) AS MAX_EST_COST,
+            ROUND(AVG(QS_RUNTIME), 2) AS AVG_RUNTIME_SEC,
+            ROUND(MIN(QS_RUNTIME), 2) AS MIN_RUNTIME_SEC,
+            ROUND(MAX(QS_RUNTIME), 2) AS MAX_RUNTIME_SEC,
+            ROUND(AVG(QS_ESTMEM), 2) AS AVG_EST_MEM,
+            ROUND(AVG(QS_ESTDISK), 2) AS AVG_EST_DISK,
+            MIN(QS_TSTART) AS FIRST_EXECUTION,
+            MAX(QS_TSTART) AS LAST_EXECUTION
+        FROM _V_QRYSTAT
+        WHERE QS_PLANID = '$plan_id';" "Plan $plan_id Statistics"
+    fi
+    
+    echo ""
+    read -p "Press Enter to continue..."
 }
 
 #=============================================================================
-# Main Program Execution
+# Main Program Execution - ADD THIS AT THE VERY END
 #=============================================================================
 
 # Only execute main if script is run directly (not sourced)
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     # Create log file directory if it doesn't exist
-    mkdir -p "$(dirname "$LOG_FILE")"
+    mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null
     
     # Start logging
-    echo "Netezza Performance Tool started at $(date)" >> "$LOG_FILE"
+    echo "Netezza Performance Tool started at $(date)" >> "$LOG_FILE" 2>/dev/null
     
     # Run main function
     main "$@"
