@@ -1,11 +1,11 @@
 #!/bin/bash
 
 #=============================================================================
-# Netezza Performance Assist Tool
-# Version: 1.0
-# Date: September 29, 2025
-# Description: Interactive Assist for Netezza 11.2.1.13
-# Author: Love Malhotra
+# Netezza Performance Automation Tool
+# Version: 1.1 - Enhanced Cost Analysis
+# Date: October 10, 2025
+# Description: Automated system checks for Netezza 11.2.1.13
+# Author: Database Administrator
 #=============================================================================
 
 # Configuration Variables
@@ -104,6 +104,10 @@ execute_sql() {
 # System Discovery Functions
 #=============================================================================
 
+#=============================================================================
+# Enhanced System Discovery with New Views
+#=============================================================================
+
 discover_system_views() {
     print_header "NETEZZA SYSTEM VIEWS DISCOVERY"
     
@@ -137,11 +141,11 @@ discover_system_views() {
         fi
     done
     
-    # Try common system views individually
+    # Try common system views individually - UPDATED with new views
     print_section "Testing Common System Views"
     local common_views=(
-        "_V_SESSION" "_V_SYSTEM_STATE" "_V_DATABASE" "_V_DISK" "_V_HOST"
-        "_V_QRYHIST" "_V_SQL_TEXT" "_V_LOCK" "_V_SYSTEM_CONFIG"
+        "_V_SESSION" "_V_SESSION_DETAIL" "_V_SYSTEM_STATE" "_V_DATABASE" "_V_DISK" "_V_HOST"
+        "_V_QRYHIST" "_V_QRYSTAT" "_V_SQL_TEXT" "_V_LOCK" "_V_SYSTEM_CONFIG"
         "_V_CPU" "_V_SCSI_ERRORS" "_V_DISKENCLOSURE" "_V_SPA" "_V_CONNECTION"
         "_V_BACKUP_HISTORY" "_V_AUTHENTICATION_SETTINGS" "_V_SCHEMA"
         "V_SESSION" "V_SYSTEM_STATE" "V_DATABASE" "V_DISK" "V_HOST"
@@ -188,13 +192,15 @@ discover_system_views() {
         fi
     done
     
-    # Specific column checks for key views
+    # Specific column checks for key views - UPDATED with new columns
     print_section "Key Column Availability Check"
     
     check_view_columns "_V_DATABASE" "DATABASE OWNER CREATEDATE OBJID"
     check_view_columns "_V_DISK" "HW_HWID HW_ROLE HW_DISKSZ HW_DISKMODEL HW_STATE"
     check_view_columns "_V_SESSION" "ID USERNAME DBNAME STATUS IPADDR CONNTIME PRIORITY"
+    check_view_columns "_V_SESSION_DETAIL" "SESSION_ID CLIENT_OS_USERNAME SESSION_USERNAME DBNAME PRIORITY_NAME SCHEMA SESSION_PID"
     check_view_columns "_V_QRYHIST" "QH_SESSIONID QH_USER QH_DATABASE QH_TSUBMIT QH_TSTART QH_TEND QH_SQL QH_PRIORITY"
+    check_view_columns "_V_QRYSTAT" "QS_SESSIONID QS_PLANID QS_SQL QS_TSUBMIT QS_TSTART QS_ESTCOST QS_ESTMEM QS_ESTDISK QS_RESROWS QS_RESBYTES QS_RUNTIME"
     check_view_columns "_V_CPU" "HOST CPU_NUMBER CPU_TYPE CPU_SPEED_MHZ CPU_UTILIZATION_PCT"
     
     print_section "System Catalog Information"
@@ -995,899 +1001,110 @@ terminate_blocking_sessions() {
 intelligent_nzsession_analysis() {
     local nzsession_cmd="$1"
     
-    # First, get session count to determine analysis strategy
-    local session_count_file="/tmp/netezza_session_count_$(date +%Y%m%d_%H%M%S).txt"
+    # First get the help to understand correct syntax
+    get_nzsession_help "$nzsession_cmd"
     
-    echo "Determining optimal analysis strategy..."
+    print_section "Enhanced Session Analysis Strategy"
     
     # Get basic session information first
+    local session_count_file="/tmp/netezza_session_count_$(date +%Y%m%d_%H%M%S).txt"
+    
+    echo "Getting session information..."
+    
+    # Try different command formats based on common nzsession syntax
     if [[ -n "$NETEZZA_HOST" ]]; then
-        "$nzsession_cmd" -host "$NETEZZA_HOST" > "$session_count_file" 2>&1
+        # Try show sessions command (most common)
+        if "$nzsession_cmd" show sessions -host "$NETEZZA_HOST" > "$session_count_file" 2>&1; then
+            print_success "Sessions retrieved using 'show sessions' command"
+        elif "$nzsession_cmd" show -host "$NETEZZA_HOST" > "$session_count_file" 2>&1; then
+            print_success "Sessions retrieved using 'show' command"
+        elif "$nzsession_cmd" -host "$NETEZZA_HOST" > "$session_count_file" 2>&1; then
+            print_success "Sessions retrieved using default command"
+        else
+            print_warning "Standard nzsession commands failed, trying alternatives..."
+            "$nzsession_cmd" > "$session_count_file" 2>&1
+        fi
     else
-        "$nzsession_cmd" > "$session_count_file" 2>&1
-    fi
-    
-    local total_sessions=0
-    if [[ -f "$session_count_file" ]]; then
-        total_sessions=$(wc -l < "$session_count_file" 2>/dev/null || echo "0")
-        total_sessions=$((total_sessions - 1))  # Subtract header line
-    fi
-    
-    echo "Total sessions detected: $total_sessions"
-    
-    # Determine if this is a heavy workload environment
-    local is_heavy_workload=false
-    if [[ "$total_sessions" -gt 50 ]]; then
-        is_heavy_workload=true
-        print_warning "Heavy workload detected ($total_sessions sessions) - using focused analysis"
-    else
-        print_success "Standard workload detected - using comprehensive analysis"
-    fi
-    
-    # Analysis strategy based on workload
-    if [[ "$is_heavy_workload" = true ]]; then
-        # Heavy workload - focus on problem sessions
-        print_section "Heavy Workload Analysis Strategy"
-        
-        # Focus on long-running sessions
-        echo "1. Analyzing long-running sessions..."
-        local longrun_file="/tmp/netezza_longrun_$(date +%Y%m%d_%H%M%S).txt"
-        if [[ -n "$NETEZZA_HOST" ]]; then
-            "$nzsession_cmd" -host "$NETEZZA_HOST" -longrun > "$longrun_file" 2>&1
+        # Local connection attempts
+        if "$nzsession_cmd" show sessions > "$session_count_file" 2>&1; then
+            print_success "Sessions retrieved using 'show sessions' command"
+        elif "$nzsession_cmd" show > "$session_count_file" 2>&1; then
+            print_success "Sessions retrieved using 'show' command"
+        elif "$nzsession_cmd" > "$session_count_file" 2>&1; then
+            print_success "Sessions retrieved using default command"
         else
-            "$nzsession_cmd" -longrun > "$longrun_file" 2>&1
-        fi
-        
-        if [[ -s "$longrun_file" ]]; then
-            echo "Long-running sessions found:"
-            echo "------------------------------------------------------------"
-            cat "$longrun_file"
-            echo "------------------------------------------------------------"
-        else
-            print_success "No long-running sessions detected"
-        fi
-        
-        # Focus on blocked sessions
-        echo ""
-        echo "2. Analyzing blocked sessions..."
-        local blocked_file="/tmp/netezza_blocked_$(date +%Y%m%d_%H%M%S).txt"
-        if [[ -n "$NETEZZA_HOST" ]]; then
-            "$nzsession_cmd" -host "$NETEZZA_HOST" -blocked > "$blocked_file" 2>&1
-        else
-            "$nzsession_cmd" -blocked > "$blocked_file" 2>&1
-        fi
-        
-        if [[ -s "$blocked_file" ]]; then
-            print_warning "Blocked sessions detected!"
-            echo "------------------------------------------------------------"
-            cat "$blocked_file"
-            echo "------------------------------------------------------------"
-        else
-            print_success "No blocked sessions detected"
-        fi
-        
-        # Analyze by specific schemas if available
-        echo ""
-        echo "3. Schema-specific analysis for heavy schemas..."
-        analyze_heavy_schemas "$nzsession_cmd"
-        
-    else
-        # Standard workload - comprehensive analysis
-        print_section "Comprehensive Analysis Strategy"
-        
-        # Display all sessions with details
-        echo "1. All active sessions:"
-        echo "------------------------------------------------------------"
-        cat "$session_count_file"
-        echo "------------------------------------------------------------"
-        
-        # Check for idle sessions
-        echo ""
-        echo "2. Analyzing idle sessions..."
-        local idle_file="/tmp/netezza_idle_$(date +%Y%m%d_%H%M%S).txt"
-        if [[ -n "$NETEZZA_HOST" ]]; then
-            "$nzsession_cmd" -host "$NETEZZA_HOST" -idle > "$idle_file" 2>&1
-        else
-            "$nzsession_cmd" -idle > "$idle_file" 2>&1
-        fi
-        
-        if [[ -s "$idle_file" ]]; then
-            local idle_count=$(wc -l < "$idle_file" 2>/dev/null || echo "0")
-            idle_count=$((idle_count - 1))
-            if [[ "$idle_count" -gt 0 ]]; then
-                print_warning "$idle_count idle sessions found"
-                echo "Consider reviewing these for cleanup:"
-                echo "------------------------------------------------------------"
-                head -20 "$idle_file"  # Show first 20 to avoid overwhelming output
-                echo "------------------------------------------------------------"
-            fi
-        else
-            print_success "No idle sessions detected"
-        fi
-        
-        # Check for system sessions
-        echo ""
-        echo "3. System sessions analysis..."
-        local system_file="/tmp/netezza_system_$(date +%Y%m%d_%H%M%S).txt"
-        if [[ -n "$NETEZZA_HOST" ]]; then
-            "$nzsession_cmd" -host "$NETEZZA_HOST" -system > "$system_file" 2>&1
-        else
-            "$nzsession_cmd" -system > "$system_file" 2>&1
-        fi
-        
-        if [[ -s "$system_file" ]]; then
-            local sys_count=$(wc -l < "$system_file" 2>/dev/null || echo "0")
-            sys_count=$((sys_count - 1))
-            echo "System sessions: $sys_count"
+            print_warning "nzsession commands failed"
         fi
     fi
     
-    # Common analyses for both strategies
-    print_section "Session Summary Analysis"
-    
-    # Parse session information for insights
+    # Display results if we got any
     if [[ -s "$session_count_file" ]]; then
-        echo "Session Analysis Summary:"
-        echo "========================"
-        
-        # Count sessions by user (if available in output)
-        echo "Top users by session count:"
-        grep -v "^Session\|^---\|^$" "$session_count_file" 2>/dev/null | \
-        awk '{print $3}' | sort | uniq -c | sort -rn | head -10 2>/dev/null || echo "Unable to parse user information"
+        local total_sessions=$(wc -l < "$session_count_file" 2>/dev/null || echo "0")
+        total_sessions=$((total_sessions - 1))  # Subtract header line
         
         echo ""
-        echo "Session status distribution:"
-        grep -v "^Session\|^---\|^$" "$session_count_file" 2>/dev/null | \
-        awk '{print $4}' | sort | uniq -c | sort -rn 2>/dev/null || echo "Unable to parse status information"
+        echo "nzsession Output:"
+        echo "=============================================================="
+        head -20 "$session_count_file"  # Show first 20 lines
+        if [[ "$total_sessions" -gt 20 ]]; then
+            echo "... (showing first 20 of $total_sessions total sessions)"
+        fi
+        echo "=============================================================="
+        
+        # Try to parse for insights
+        analyze_nzsession_output "$session_count_file"
+    else
+        print_warning "No session data retrieved from nzsession utility"
+        echo "This may be due to:"
+        echo "1. Different nzsession command syntax in this version"
+        echo "2. Permission issues"
+        echo "3. Network connectivity (for remote connections)"
+        echo ""
+        echo "Falling back to system view analysis..."
     fi
     
-    # Cleanup temporary files
-    rm -f "$session_count_file" "$longrun_file" "$blocked_file" "$idle_file" "$system_file" 2>/dev/null
+    rm -f "$session_count_file"
 }
 
-# Analyze sessions for heavy schemas
-analyze_heavy_schemas() {
+# Get correct nzsession syntax
+get_nzsession_help() {
     local nzsession_cmd="$1"
     
-    # Get schema list from system views first
-    local heavy_schemas=()
+    print_section "Determining nzsession Command Syntax"
     
-    # Try to identify heavy schemas from recent query activity
-    local schema_query="
-    SELECT 
-        QH_DATABASE,
-        COUNT(*) as QUERY_COUNT
-    FROM _V_QRYHIST
-    WHERE QH_TEND > NOW() - INTERVAL '1 HOUR'
-    GROUP BY QH_DATABASE
-    HAVING COUNT(*) > 10
-    ORDER BY QUERY_COUNT DESC
-    LIMIT 5"
+    # Get help information
+    local help_file="/tmp/nzsession_help_$(date +%Y%m%d_%H%M%S).txt"
     
-    echo "Identifying heavy schemas from recent activity..."
-    
-    # Execute query to find heavy schemas
-    local temp_schemas_file="/tmp/heavy_schemas_$(date +%Y%m%d_%H%M%S).txt"
-    if execute_sql "$schema_query" "Heavy Schema Detection" false > "$temp_schemas_file" 2>&1; then
-        # Parse the results to get schema names
-        while IFS= read -r line; do
-            if [[ "$line" =~ ^[[:space:]]*([A-Za-z0-9_]+)[[:space:]]+ ]]; then
-                schema_name="${BASH_REMATCH[1]}"
-                if [[ "$schema_name" != "QH_DATABASE" && "$schema_name" != "QUERY_COUNT" ]]; then
-                    heavy_schemas+=("$schema_name")
-                fi
-            fi
-        done < "$temp_schemas_file"
-    fi
-    
-    # If no heavy schemas found, use common ones
-    if [[ ${#heavy_schemas[@]} -eq 0 ]]; then
-        heavy_schemas=("SYSTEM" "PRODUCTION" "ANALYTICS" "DW" "STAGING")
-        echo "Using common schema names for analysis..."
+    if [[ -n "$NETEZZA_HOST" ]]; then
+        "$nzsession_cmd" -h > "$help_file" 2>&1
     else
-        echo "Analyzing schemas with high activity: ${heavy_schemas[*]}"
+        "$nzsession_cmd" -h > "$help_file" 2>&1
     fi
     
-    # Analyze sessions for each heavy schema
-    for schema in "${heavy_schemas[@]}"; do
-        if [[ -n "$schema" ]]; then
-            echo ""
-            echo "Analyzing sessions for schema: $schema"
-            echo "----------------------------------------"
-            
-            local schema_file="/tmp/netezza_schema_${schema}_$(date +%Y%m%d_%H%M%S).txt"
-            
-            # Use nzsession to get sessions for specific database/schema
-            if [[ -n "$NETEZZA_HOST" ]]; then
-                "$nzsession_cmd" -host "$NETEZZA_HOST" -db "$schema" > "$schema_file" 2>&1
-            else
-                "$nzsession_cmd" -db "$schema" > "$schema_file" 2>&1
-            fi
-            
-            if [[ -s "$schema_file" ]]; then
-                local schema_session_count=$(wc -l < "$schema_file" 2>/dev/null || echo "0")
-                schema_session_count=$((schema_session_count - 1))
-                
-                if [[ "$schema_session_count" -gt 0 ]]; then
-                    echo "Active sessions in $schema: $schema_session_count"
-                    if [[ "$schema_session_count" -gt 10 ]]; then
-                        print_warning "High session count in $schema - showing top 10:"
-                        head -11 "$schema_file" | tail -10
-                    else
-                        cat "$schema_file"
-                    fi
-                else
-                    echo "No active sessions in $schema"
-                fi
-            else
-                echo "Unable to retrieve session information for $schema"
-            fi
-            
-            rm -f "$schema_file"
-        fi
-    done
-    
-    rm -f "$temp_schemas_file"
-}
-
-check_active_sessions() {
-    print_header "ACTIVE SESSIONS AND SQL ANALYSIS"
-    
-    # Use nzsession utility for enhanced session analysis
-    print_section "Enhanced Session Analysis using nzsession"
-    
-    # Check if nzsession utility is available
-    local nzsession_path="/nz/bin/nzsession"
-    local alt_paths=(
-        "/opt/nz/bin/nzsession"
-        "/usr/local/nz/bin/nzsession"
-        "/nz/support/bin/nzsession"
-        "/nz/kit/bin/nzsession"
-    )
-    
-    local found_nzsession=""
-    
-    if [[ -f "$nzsession_path" && -x "$nzsession_path" ]]; then
-        found_nzsession="$nzsession_path"
-    else
-        for path in "${alt_paths[@]}"; do
-            if [[ -f "$path" && -x "$path" ]]; then
-                found_nzsession="$path"
-                break
-            fi
-        done
-    fi
-    
-    if [[ -n "$found_nzsession" ]]; then
-        print_success "Using nzsession at: $found_nzsession"
+    if [[ -s "$help_file" ]]; then
+        echo "Available nzsession commands:"
+        echo "=============================================================="
+        cat "$help_file"
+        echo "=============================================================="
         
-        # Active transactions analysis
-        print_section "Active Transactions Analysis"
-        local activetxn_file="/tmp/netezza_activetxn_$(date +%Y%m%d_%H%M%S).txt"
-        
-        echo "Analyzing active transactions..."
+        # Check for specific subcommands
+        echo ""
+        echo "Checking for available subcommands..."
         if [[ -n "$NETEZZA_HOST" ]]; then
-            if "$found_nzsession" -host "$NETEZZA_HOST" -activetxn > "$activetxn_file" 2>&1; then
-                if [[ -s "$activetxn_file" ]]; then
-                    print_success "Active transactions found!"
-                    echo ""
-                    echo "Active Transactions Report:"
-                    echo "=============================================================="
-                    cat "$activetxn_file"
-                    echo "=============================================================="
-                    
-                    # Analyze transaction patterns
-                    local long_txn_count=$(grep -c "Duration:" "$activetxn_file" 2>/dev/null || echo "0")
-                    if [[ "$long_txn_count" -gt 0 ]]; then
-                        print_warning "$long_txn_count active transactions detected"
-                    else
-                        print_success "No long-running transactions detected"
-                    fi
-                else
-                    print_success "No active transactions currently running"
-                fi
-                echo "Full report saved to: $activetxn_file"
-            else
-                print_error "Failed to get active transactions"
-                cat "$activetxn_file"
-                rm -f "$activetxn_file"
-            fi
+            "$nzsession_cmd" -hc show > "${help_file}_subcmds" 2>&1
         else
-            if "$found_nzsession" -activetxn > "$activetxn_file" 2>&1; then
-                if [[ -s "$activetxn_file" ]]; then
-                    print_success "Active transactions found!"
-                    echo ""
-                    echo "Active Transactions Report:"
-                    echo "=============================================================="
-                    cat "$activetxn_file"
-                    echo "=============================================================="
-                    
-                    # Analyze transaction patterns
-                    local long_txn_count=$(grep -c "Duration:" "$activetxn_file" 2>/dev/null || echo "0")
-                    if [[ "$long_txn_count" -gt 0 ]]; then
-                        print_warning "$long_txn_count active transactions detected"
-                    else
-                        print_success "No long-running transactions detected"
-                    fi
-                else
-                    print_success "No active transactions currently running"
-                fi
-                echo "Full report saved to: $activetxn_file"
-            else
-                print_error "Failed to get active transactions"
-                cat "$activetxn_file"
-                rm -f "$activetxn_file"
-            fi
+            "$nzsession_cmd" -hc show > "${help_file}_subcmds" 2>&1
         fi
         
-        # Comprehensive session analysis
-        print_section "Comprehensive Session Analysis"
-        intelligent_nzsession_analysis "$found_nzsession"
-        
-    else
-        print_warning "nzsession utility not found in standard locations."
-        echo ""
-        echo "Standard locations checked:"
-        echo "  - /nz/bin/nzsession"
-        echo "  - /opt/nz/bin/nzsession"
-        echo "  - /usr/local/nz/bin/nzsession"
-        echo "  - /nz/support/bin/nzsession"
-        echo "  - /nz/kit/bin/nzsession"
-        echo ""
-        read -p "Enter full path to nzsession utility (or press Enter to skip): " custom_path
-        
-        if [[ -n "$custom_path" && -f "$custom_path" && -x "$custom_path" ]]; then
-            print_success "Using custom nzsession at: $custom_path"
-            intelligent_nzsession_analysis "$custom_path"
-        else
-            print_warning "Skipping enhanced session analysis - using basic system views"
+        if [[ -s "${help_file}_subcmds" ]]; then
+            echo "Available subcommands:"
+            echo "--------------------------------------------------------------"
+            cat "${help_file}_subcmds"
+            echo "--------------------------------------------------------------"
         fi
     fi
     
-    # Active Sessions using correct column names
-    print_section "Current Sessions Analysis (System Views)"
-    
-    execute_sql "
-    SELECT 
-        ID,
-        USERNAME,
-        DBNAME,
-        STATUS,
-        IPADDR,
-        CONNTIME,
-        PRIORITY,
-        COMMAND,
-        CLIENT_OS_USERNAME
-    FROM _V_SESSION
-    ORDER BY CONNTIME DESC;" "Current Sessions Overview"
-    
-    # Session status summary
-    print_section "Session Status Summary"
-    execute_sql "
-    SELECT 
-        STATUS,
-        COUNT(*) AS SESSION_COUNT
-    FROM _V_SESSION
-    GROUP BY STATUS
-    ORDER BY SESSION_COUNT DESC;" "Session Status Distribution"
-    
-    # Sessions by user
-    print_section "Sessions by User"
-    execute_sql "
-    SELECT 
-        USERNAME,
-        COUNT(*) AS SESSION_COUNT,
-        MAX(CONNTIME) AS LATEST_CONNECTION
-    FROM _V_SESSION
-    GROUP BY USERNAME
-    ORDER BY SESSION_COUNT DESC;" "User Session Summary"
-    
-    # Sessions by database
-    print_section "Sessions by Database"
-    execute_sql "
-    SELECT 
-        DBNAME,
-        COUNT(*) AS SESSION_COUNT,
-        COUNT(DISTINCT USERNAME) AS UNIQUE_USERS
-    FROM _V_SESSION
-    GROUP BY DBNAME
-    ORDER BY SESSION_COUNT DESC;" "Database Connection Summary"
-}
-
-check_query_performance() {
-    print_header "QUERY PERFORMANCE ANALYSIS"
-    
-    # Query History Analysis using correct column names
-    print_section "Query History Analysis"
-    
-    execute_sql "
-    SELECT 
-        QH_SESSIONID,
-        QH_USER,
-        QH_DATABASE,
-        QH_TSUBMIT,
-        QH_TSTART,
-        QH_TEND,
-        QH_PRIORITY,
-        QH_ESTCOST,
-        QH_RESROWS,
-        SUBSTR(QH_SQL, 1, 100) AS SQL_PREVIEW
-    FROM _V_QRYHIST
-    WHERE QH_TEND > NOW() - INTERVAL '24 HOURS'
-    ORDER BY QH_TEND DESC
-    LIMIT ${TOP_QUERIES_LIMIT};" "Recent Query History (24h)"
-    
-    # Query performance by execution time
-    print_section "Query Performance Analysis"
-    execute_sql "
-    SELECT 
-        QH_SESSIONID,
-        QH_USER,
-        QH_DATABASE,
-        QH_TSTART,
-        QH_TEND,
-        ROUND(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)), 2) AS EXECUTION_SECONDS,
-        QH_ESTCOST,
-        QH_RESROWS,
-        SUBSTR(QH_SQL, 1, 80) AS SQL_PREVIEW
-    FROM _V_QRYHIST
-    WHERE QH_TEND > NOW() - INTERVAL '24 HOURS'
-    AND QH_TSTART IS NOT NULL 
-    AND QH_TEND IS NOT NULL
-    AND EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)) > ${LONG_RUNNING_QUERY_HOURS} * 3600
-    ORDER BY EXECUTION_SECONDS DESC
-    LIMIT ${TOP_QUERIES_LIMIT};" "Long Running Queries (24h)"
-    
-    # Query summary statistics
-    print_section "Query Statistics Summary (Last 24 Hours)"
-    execute_sql "
-    SELECT 
-        COUNT(*) AS TOTAL_QUERIES,
-        COUNT(DISTINCT QH_USER) AS UNIQUE_USERS,
-        COUNT(DISTINCT QH_DATABASE) AS DATABASES_USED,
-        ROUND(AVG(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART))), 2) AS AVG_EXECUTION_SEC,
-        ROUND(MAX(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART))), 2) AS MAX_EXECUTION_SEC,
-        ROUND(AVG(QH_ESTCOST), 2) AS AVG_EST_COST,
-        ROUND(MAX(QH_ESTCOST), 2) AS MAX_EST_COST
-    FROM _V_QRYHIST
-    WHERE QH_TEND > NOW() - INTERVAL '24 HOURS'
-    AND QH_TSTART IS NOT NULL 
-    AND QH_TEND IS NOT NULL;" "24-Hour Query Statistics"
-    
-    # Top users by query volume
-    print_section "Top Users by Query Activity"
-    execute_sql "
-    SELECT 
-        QH_USER,
-        COUNT(*) AS QUERY_COUNT,
-        ROUND(AVG(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART))), 2) AS AVG_EXECUTION_SEC,
-        ROUND(SUM(QH_ESTCOST), 2) AS TOTAL_EST_COST
-    FROM _V_QRYHIST
-    WHERE QH_TEND > NOW() - INTERVAL '24 HOURS'
-    AND QH_TSTART IS NOT NULL 
-    AND QH_TEND IS NOT NULL
-    GROUP BY QH_USER
-    ORDER BY QUERY_COUNT DESC
-    LIMIT 10;" "Top Users by Query Volume"
-}
-
-#=============================================================================
-# Interactive SQL Analysis
-#=============================================================================
-
-interactive_explain_plan() {
-    print_header "INTERACTIVE SQL ANALYSIS"
-    
-    echo -e "${CYAN}Available options:${NC}"
-    echo "1. Generate explain plan for a specific session"
-    echo "2. Analyze SQL from query history"  
-    echo "3. Enter custom SQL for analysis"
-    echo "4. Use nz_plan utility (requires plan ID)"
-    echo "5. Return to main menu"
-    echo ""
-    
-    read -p "Choose an option (1-5): " choice
-    
-    case $choice in
-        1)
-            analyze_session_sql
-            ;;
-        2)
-            analyze_historical_sql
-            ;;
-        3)
-            analyze_custom_sql
-            ;;
-        4)
-            use_nz_plan_utility
-            ;;
-        5)
-            return
-            ;;
-        *)
-            print_error "Invalid option"
-            read -p "Press Enter to continue..."
-            ;;
-    esac
-    
-    # After any analysis, ask if user wants to continue or return to main menu
-    echo ""
-    read -p "Would you like to perform another analysis? (y/n): " continue_choice
-    if [[ "$continue_choice" =~ ^[Yy] ]]; then
-        interactive_explain_plan  # Recursive call to show menu again
-    fi
-}
-
-analyze_session_sql() {
-    echo ""
-    read -p "Enter Session ID: " session_id
-    
-    if [[ ! "$session_id" =~ ^[0-9]+$ ]]; then
-        print_error "Invalid session ID"
-        return
-    fi
-    
-    print_section "Session Information"
-    execute_sql "
-    SELECT 
-        ID,
-        USERNAME,
-        DBNAME,
-        STATUS,
-        IPADDR,
-        CONNTIME,
-        PRIORITY,
-        COMMAND,
-        CLIENT_OS_USERNAME
-    FROM _V_SESSION
-    WHERE ID = ${session_id};" "Session ${session_id} Details"
-    
-    print_section "Session Query History"
-    execute_sql "
-    SELECT 
-        QH_SESSIONID,
-        QH_TSUBMIT,
-        QH_TSTART,
-        QH_TEND,
-        ROUND(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)), 2) AS ELAPSED_SECONDS,
-        QH_ESTCOST,
-        QH_RESROWS,
-        SUBSTR(QH_SQL, 1, 200) AS SQL_TEXT
-    FROM _V_QRYHIST
-    WHERE QH_SESSIONID = ${session_id}
-    ORDER BY QH_TSUBMIT DESC
-    LIMIT 5;" "Recent Query History for Session ${session_id}"
-    
-    print_success "SQL text is available from _V_QRYHIST.QH_SQL column!"
-    
-    # Get the most recent SQL for this session
-    echo ""
-    echo "Recent SQL statements for this session:"
-    execute_sql "
-    SELECT 
-        QH_TSUBMIT,
-        SUBSTR(QH_SQL, 1, 200) AS SQL_PREVIEW
-    FROM _V_QRYHIST
-    WHERE QH_SESSIONID = ${session_id}
-    ORDER BY QH_TSUBMIT DESC
-    LIMIT 3;" "Recent SQL for Session ${session_id}"
-    
-    echo ""
-    read -p "Do you want to analyze the most recent SQL statement? (y/n): " analyze_sql
-    
-    if [[ "$analyze_sql" =~ ^[Yy] ]]; then
-        # Get the full SQL text
-        sql_text=$($NZSQL_CMD -t -c "SELECT QH_SQL FROM _V_QRYHIST WHERE QH_SESSIONID = ${session_id} ORDER BY QH_TSUBMIT DESC LIMIT 1;" 2>/dev/null | head -1)
-        
-        if [[ -n "$sql_text" && "$sql_text" != *"0 rows"* ]]; then
-            print_section "SQL Analysis for Session $session_id"
-            echo "SQL Statement:"
-            echo "$sql_text"
-            echo ""
-            
-            # Generate explain plan with proper context
-            print_section "Explain Plan"
-            
-            # Get database context from session
-            session_db=$($NZSQL_CMD -t -c "SELECT DBNAME FROM _V_SESSION WHERE ID = ${session_id} LIMIT 1;" 2>/dev/null | head -1 | tr -d ' ')
-            if [[ -n "$session_db" ]]; then
-                echo "Using session database: $session_db"
-                generate_explain_plan "$sql_text" "$session_db" ""
-            else
-                echo "Using current database: $NETEZZA_DB"
-                generate_explain_plan "$sql_text" "$NETEZZA_DB" ""
-            fi
-            
-            analyze_sql_for_issues "$sql_text"
-        else
-            print_warning "Could not retrieve SQL text for session $session_id"
-        fi
-    fi
-    
-    echo ""
-    read -p "Press Enter to continue..."
-}
-
-analyze_historical_sql() {
-    print_section "Recent Query History"
-    execute_sql "
-    SELECT 
-        QH_SESSIONID,
-        QH_USER,
-        QH_DATABASE,
-        QH_TSTART,
-        QH_TEND,
-        ROUND(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)), 2) AS ELAPSED_SECONDS,
-        QH_ESTCOST,
-        QH_RESROWS
-    FROM _V_QRYHIST
-    WHERE QH_TEND > NOW() - INTERVAL '24 HOURS'
-    ORDER BY QH_TEND DESC
-    LIMIT 20;" "Recent Query History"
-    
-    echo ""
-    print_success "SQL text is available from _V_QRYHIST.QH_SQL!"
-    echo ""
-    
-    read -p "Enter Session ID for performance details: " session_id
-    
-    if [[ ! "$session_id" =~ ^[0-9]+$ ]]; then
-        print_error "Invalid session ID"
-        read -p "Press Enter to continue..."
-        return
-    fi
-    
-    print_section "Detailed Performance for Session $session_id"
-    execute_sql "
-    SELECT 
-        QH_SESSIONID,
-        QH_USER,
-        QH_DATABASE,
-        QH_TSUBMIT,
-        QH_TSTART,
-        QH_TEND,
-        ROUND(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)), 2) AS ELAPSED_SECONDS,
-        QH_PRIORITY,
-        QH_ESTCOST,
-        QH_ESTDISK,
-        QH_ESTMEM,
-        QH_SNIPPETS,
-        QH_RESROWS,
-        QH_RESBYTES,
-        QH_PLANID,
-        SUBSTR(QH_SQL, 1, 500) AS SQL_TEXT
-    FROM _V_QRYHIST
-    WHERE QH_SESSIONID = ${session_id}
-    ORDER BY QH_TSUBMIT DESC;" "Performance Details for Session ${session_id}"
-    
-    # Check if plan IDs are available
-    plan_id_count=$($NZSQL_CMD -t -c "SELECT COUNT(*) FROM _V_QRYHIST WHERE QH_SESSIONID = ${session_id} AND QH_PLANID IS NOT NULL;" 2>/dev/null | head -1 | tr -d ' ')
-    
-    if [[ "$plan_id_count" -gt 0 ]]; then
-        print_success "Plan IDs available! You can use option 4 (nz_plan utility) for detailed execution plans."
-        echo "Available Plan IDs for this session:"
-        execute_sql "
-        SELECT 
-            QH_PLANID,
-            QH_TSTART,
-            SUBSTR(QH_SQL, 1, 100) AS SQL_PREVIEW
-        FROM _V_QRYHIST
-        WHERE QH_SESSIONID = ${session_id} 
-        AND QH_PLANID IS NOT NULL
-        ORDER BY QH_TSTART DESC;" "Plan IDs for Session ${session_id}"
-    fi
-    
-    # Ask if user wants to analyze the SQL
-    echo ""
-    read -p "Do you want to analyze the SQL from this session? (y/n): " analyze_choice
-    
-    if [[ "$analyze_choice" =~ ^[Yy] ]]; then
-        # Get the most recent SQL for analysis
-        sql_text=$($NZSQL_CMD -t -c "SELECT QH_SQL FROM _V_QRYHIST WHERE QH_SESSIONID = ${session_id} ORDER BY QH_TSUBMIT DESC LIMIT 1;" 2>/dev/null | head -1)
-        
-        if [[ -n "$sql_text" && "$sql_text" != *"0 rows"* ]]; then
-            print_section "SQL Analysis for Session $session_id"
-            echo "SQL Statement:"
-            echo "$sql_text"
-            echo ""
-            
-            # Generate explain plan
-            read -p "Generate explain plan for this SQL? (y/n): " explain_choice
-            if [[ "$explain_choice" =~ ^[Yy] ]]; then
-                print_section "Explain Plan"
-                
-                # Get database context from query history
-                session_db=$($NZSQL_CMD -t -c "SELECT QH_DATABASE FROM _V_QRYHIST WHERE QH_SESSIONID = ${session_id} ORDER BY QH_TSUBMIT DESC LIMIT 1;" 2>/dev/null | head -1 | tr -d ' ')
-                if [[ -n "$session_db" ]]; then
-                    echo "Using query database: $session_db"
-                    generate_explain_plan "$sql_text" "$session_db" ""
-                else
-                    echo "Using current database: $NETEZZA_DB"
-                    generate_explain_plan "$sql_text" "$NETEZZA_DB" ""
-                fi
-            fi
-            
-            analyze_sql_for_issues "$sql_text"
-        else
-            print_warning "Could not retrieve SQL text for session $session_id"
-        fi
-    fi
-    
-    echo ""
-    read -p "Press Enter to continue..."
-}
-
-analyze_custom_sql() {
-    echo ""
-    echo "Enter your SQL statement (end with semicolon and press Enter twice):"
-    echo ""
-    
-    sql_statement=""
-    while IFS= read -r line; do
-        if [[ -z "$line" && "$sql_statement" == *";" ]]; then
-            break
-        fi
-        sql_statement="$sql_statement$line "
-    done
-    
-    if [[ -z "$sql_statement" ]]; then
-        print_error "No SQL statement provided"
-        return
-    fi
-    
-    # Ask which database/schema to use for explain plan
-    echo ""
-    read -p "Enter database name for EXPLAIN (or press Enter to use current: $NETEZZA_DB): " explain_db
-    if [[ -z "$explain_db" ]]; then
-        explain_db="$NETEZZA_DB"
-    fi
-    
-    read -p "Enter schema name (or press Enter for default): " explain_schema
-    
-    # Create a temporary file with the SQL
-    temp_sql_file=$(mktemp)
-    echo "$sql_statement" > "$temp_sql_file"
-    
-    print_section "Explain Plan Analysis"
-    generate_explain_plan "$sql_statement" "$explain_db" "$explain_schema"
-    
-    analyze_sql_for_issues "$sql_statement"
-    
-    rm -f "$temp_sql_file"
-    
-    echo ""
-    read -p "Press Enter to continue..."
-}
-
-use_nz_plan_utility() {
-    print_section "Using nz_plan Utility"
-    
-    echo "This method uses the nz_plan utility to retrieve execution plans by plan ID."
-    echo ""
-    echo "First, let's find plan IDs from recent query history:"
-    
-    # Show recent queries with their potential plan IDs
-    execute_sql "
-    SELECT 
-        QH_SESSIONID,
-        QH_USER,
-        QH_DATABASE,
-        QH_TSTART,
-        QH_TEND,
-        ROUND(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)), 2) AS ELAPSED_SECONDS,
-        QH_PLANID,
-        SUBSTR(QH_SQL, 1, 100) AS SQL_PREVIEW
-    FROM _V_QRYHIST
-    WHERE QH_TEND > NOW() - INTERVAL '24 HOURS'
-    AND QH_PLANID IS NOT NULL
-    ORDER BY QH_TEND DESC
-    LIMIT 20;" "Recent Queries with Plan IDs"
-    
-    echo ""
-    read -p "Enter Plan ID: " plan_id
-    
-    if [[ ! "$plan_id" =~ ^[0-9]+$ ]]; then
-        print_error "Invalid plan ID"
-        return
-    fi
-    
-    # Check if nz_plan utility is available
-    local nz_plan_path="/nz/support/contrib/bin/nz_plan"
-    local alt_paths=(
-        "/opt/nz/support/contrib/bin/nz_plan"
-        "/usr/local/nz/support/contrib/bin/nz_plan"
-        "/nz/bin/nz_plan"
-    )
-    
-    local found_nz_plan=""
-    
-    if [[ -f "$nz_plan_path" && -x "$nz_plan_path" ]]; then
-        found_nz_plan="$nz_plan_path"
-    else
-        for path in "${alt_paths[@]}"; do
-            if [[ -f "$path" && -x "$path" ]]; then
-                found_nz_plan="$path"
-                break
-            fi
-        done
-    fi
-    
-    if [[ -z "$found_nz_plan" ]]; then
-        print_warning "nz_plan utility not found in standard locations."
-        echo ""
-        echo "Standard locations checked:"
-        echo "  - /nz/support/contrib/bin/nz_plan"
-        echo "  - /opt/nz/support/contrib/bin/nz_plan"
-        echo "  - /usr/local/nz/support/contrib/bin/nz_plan"
-        echo "  - /nz/bin/nz_plan"
-        echo ""
-        read -p "Enter full path to nz_plan utility (or press Enter to skip): " custom_path
-        
-        if [[ -n "$custom_path" && -f "$custom_path" && -x "$custom_path" ]]; then
-            found_nz_plan="$custom_path"
-        else
-            print_error "nz_plan utility not available"
-            return
-        fi
-    fi
-    
-    print_section "Generating Plan using nz_plan utility"
-    print_success "Using nz_plan at: $found_nz_plan"
-    
-    # Create output file
-    local plan_file="/tmp/netezza_plan_${plan_id}_$(date +%Y%m%d_%H%M%S).pln"
-    
-    echo "Executing: $found_nz_plan $plan_id"
-    echo "Output file: $plan_file"
-    
-    if "$found_nz_plan" "$plan_id" > "$plan_file" 2>&1; then
-        print_success "Plan generated successfully!"
-        echo ""
-        echo "Plan contents:"
-        echo "=============================================================="
-        cat "$plan_file"
-        echo "=============================================================="
-        echo ""
-        echo "Plan saved to: $plan_file"
-    else
-        print_error "Failed to generate plan with nz_plan utility"
-        echo ""
-        echo "Error output:"
-        cat "$plan_file"
-        rm -f "$plan_file"
-    fi
-    
-    echo ""
-    read -p "Press Enter to continue..."
-}
-
-generate_explain_plan_for_session() {
-    local session_id="$1"
-    
-    print_warning "SQL text retrieval not available from system views."
-    print_warning "To generate explain plan, you need to provide the SQL statement manually."
-    
-    echo ""
-    read -p "Do you want to enter the SQL statement manually? (y/n): " manual_entry
-    
-    if [[ "$manual_entry" =~ ^[Yy] ]]; then
-        analyze_custom_sql
-    else
-        print_section "Performance Summary for Session $session_id"
-        execute_sql "
-        SELECT 
-            QH_SESSIONID,
-            QH_USER,
-            QH_DATABASE,
-            ROUND(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)), 2) AS ELAPSED_SECONDS,
-            QH_ESTCOST,
-            QH_RESROWS,
-            SUBSTR(QH_SQL, 1, 200) AS SQL_PREVIEW
-        FROM _V_QRYHIST
-        WHERE QH_SESSIONID = ${session_id}
-        ORDER BY QH_TSUBMIT DESC
-        LIMIT 1;" "Session Performance Summary"
-    fi
+    rm -f "$help_file" "${help_file}_subcmds"
 }
 
 # Enhanced explain plan generation with proper database/schema context
@@ -2008,22 +1225,22 @@ show_main_menu() {
     clear
     echo -e "${GREEN}╔══════════════════════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║                    NETEZZA PERFORMANCE AUTOMATION TOOL                      ║${NC}"
-    echo -e "${GREEN}║                              Version 1.0                                    ║${NC}"
-    echo -e "${GREEN}║                    Author: Love Malhotra                                    ║${NC}"
+    echo -e "${GREEN}║                         Version 1.1 - Enhanced Cost Analysis                ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "${CYAN}Main Options:${NC}"
     echo "1. Discover Available System Views (Run this first!)"
     echo "2. Netezza System State Analysis"
     echo "3. Linux OS Performance Monitoring"
-    echo "4. Active Sessions and SQL Analysis"
+    echo "4. Active Sessions and SQL Analysis (Enhanced with Cost Data)"
     echo "5. Lock Analysis and Blocking Sessions"
     echo "6. Query Performance Analysis"
-    echo "7. Interactive SQL Explain Plan Analysis"
-    echo "8. Run Complete System Check (Options 2-6)"
-    echo "9. Configuration Settings"
-    echo "10. View Log File"
-    echo "11. Exit"
+    echo "7. Cost-Based Performance Analysis (NEW - uses _V_QRYSTAT)"
+    echo "8. Interactive SQL Explain Plan Analysis"
+    echo "9. Run Complete System Check (Options 2-7)"
+    echo "10. Configuration Settings"
+    echo "11. View Log File"
+    echo "12. Exit"
     echo ""
     echo -e "${YELLOW}Current Settings:${NC}"
     echo "  - Host: ${NETEZZA_HOST:-'(local connection)'}"
@@ -2034,164 +1251,7 @@ show_main_menu() {
     echo ""
 }
 
-configure_settings() {
-    print_header "CONFIGURATION SETTINGS"
-    
-    echo "Current configuration:"
-    echo "1. nzsql Path: $NZSQL_PATH"
-    echo "2. Netezza Host: ${NETEZZA_HOST:-'(local connection)'}"
-    echo "3. Database: $NETEZZA_DB"
-    echo "4. User: $NETEZZA_USER"
-    echo "5. Long Running Query Threshold: $LONG_RUNNING_QUERY_HOURS hours"
-    echo "6. Top Sessions Limit: $TOP_SESSIONS_LIMIT"
-    echo "7. Top Queries Limit: $TOP_QUERIES_LIMIT"
-    echo ""
-    
-    read -p "Which setting would you like to change (1-7, or press Enter to return)? " setting_choice
-    
-    case $setting_choice in
-        1)
-            read -p "Enter full path to nzsql: " new_path
-            NZSQL_PATH="$new_path"
-            NZSQL_CMD=$(build_nzsql_cmd)
-            ;;
-        2)
-            read -p "Enter new Netezza host (leave blank for local connection): " new_host
-            NETEZZA_HOST="$new_host"
-            NZSQL_CMD=$(build_nzsql_cmd)
-            ;;
-        3)
-            read -p "Enter new database: " new_db
-            NETEZZA_DB="$new_db"
-            NZSQL_CMD=$(build_nzsql_cmd)
-            ;;
-        4)
-            read -p "Enter new username: " new_user
-            NETEZZA_USER="$new_user"
-            NZSQL_CMD=$(build_nzsql_cmd)
-            ;;
-        5)
-            read -p "Enter new long running query threshold (hours): " new_threshold
-            if [[ "$new_threshold" =~ ^[0-9]+$ ]]; then
-                LONG_RUNNING_QUERY_HOURS="$new_threshold"
-            else
-                print_error "Invalid threshold value"
-            fi
-            ;;
-        6)
-            read -p "Enter new top sessions limit: " new_limit
-            if [[ "$new_limit" =~ ^[0-9]+$ ]]; then
-                TOP_SESSIONS_LIMIT="$new_limit"
-            else
-                print_error "Invalid limit value"
-            fi
-            ;;
-        7)
-            read -p "Enter new top queries limit: " new_limit
-            if [[ "$new_limit" =~ ^[0-9]+$ ]]; then
-                TOP_QUERIES_LIMIT="$new_limit"
-            else
-                print_error "Invalid limit value"
-            fi
-            ;;
-        "")
-            return
-            ;;
-        *)
-            print_error "Invalid option"
-            ;;
-    esac
-    
-    print_success "Configuration updated successfully"
-    read -p "Press Enter to continue..."
-}
-
-view_log_file() {
-    if [[ -f "$LOG_FILE" ]]; then
-        echo -e "${CYAN}Last 50 lines of log file: $LOG_FILE${NC}"
-        echo "============================================================"
-        tail -50 "$LOG_FILE"
-        echo "============================================================"
-    else
-        print_warning "Log file not found: $LOG_FILE"
-    fi
-    read -p "Press Enter to continue..."
-}
-
-run_complete_check() {
-    print_header "COMPLETE SYSTEM CHECK STARTING"
-    echo "This will run all system checks (options 2-6). This may take several minutes..."
-    echo ""
-    read -p "Continue? (y/n): " confirm
-    
-    if [[ ! "$confirm" =~ ^[Yy] ]]; then
-        return
-    fi
-    
-    check_netezza_system_state
-    check_os_performance
-    check_active_sessions
-    check_locks_and_blocking
-    check_query_performance
-    
-    print_header "COMPLETE SYSTEM CHECK FINISHED"
-    print_success "All checks completed successfully!"
-    echo "Log file: $LOG_FILE"
-    read -p "Press Enter to continue..."
-}
-
-test_connection() {
-    print_section "Testing Netezza Connection"
-    
-    # First check if nzsql is available
-    if ! check_nzsql_availability; then
-        return 1
-    fi
-    
-    # Prompt for host if not set
-    if [[ -z "$NETEZZA_HOST" ]]; then
-        echo ""
-        echo "No Netezza host specified. You can:"
-        echo "1. Connect to local Netezza instance"
-        echo "2. Specify a remote host"
-        echo ""
-        read -p "Enter Netezza host (or press Enter for local connection): " input_host
-        if [[ -n "$input_host" ]]; then
-            NETEZZA_HOST="$input_host"
-            NZSQL_CMD=$(build_nzsql_cmd)
-        fi
-    fi
-    
-    if [[ -n "$NETEZZA_HOST" ]]; then
-        echo "Connecting to: $NETEZZA_HOST/$NETEZZA_DB as $NETEZZA_USER"
-    else
-        echo "Connecting to: local/$NETEZZA_DB as $NETEZZA_USER"
-    fi
-    echo "Using nzsql at: $NZSQL_PATH"
-    echo "Command: $NZSQL_CMD"
-    
-    if execute_sql "SELECT CURRENT_TIMESTAMP;" "Connection Test" true; then
-        print_success "Connection successful!"
-        return 0
-    else
-        print_error "Connection failed!"
-        echo ""
-        echo "Possible issues:"
-        echo "1. Check nzsql path: $NZSQL_PATH"
-        echo "2. Verify connection parameters (host, database, user)"
-        echo "3. Ensure network connectivity to Netezza host"
-        echo "4. Check if authentication is required (password prompt)"
-        echo ""
-        echo "Try running manually:"
-        echo "$NZSQL_CMD -c 'SELECT CURRENT_TIMESTAMP;'"
-        return 1
-    fi
-}
-
-#=============================================================================
-# Main Program
-#=============================================================================
-
+# Update main function to include new option
 main() {
     # Test connection on startup
     if ! test_connection; then
@@ -2207,7 +1267,7 @@ main() {
     # Main program loop
     while true; do
         show_main_menu
-        read -p "Choose an option (1-11): " choice
+        read -p "Choose an option (1-12): " choice
         
         case $choice in
             1)
@@ -2235,30 +1295,543 @@ main() {
                 read -p "Press Enter to continue..."
                 ;;
             7)
-                interactive_explain_plan
+                check_cost_based_performance
+                read -p "Press Enter to continue..."
                 ;;
             8)
-                run_complete_check
+                interactive_explain_plan
                 ;;
             9)
-                configure_settings
+                run_complete_check
                 ;;
             10)
-                view_log_file
+                configure_settings
                 ;;
             11)
+                view_log_file
+                ;;
+            12)
                 print_success "Thank you for using Netezza Performance Automation Tool!"
                 exit 0
                 ;;
             *)
-                print_error "Invalid option. Please choose 1-11."
+                print_error "Invalid option. Please choose 1-12."
                 read -p "Press Enter to continue..."
                 ;;
         esac
     done
 }
 
-# Check if script is being sourced or executed
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    main "$@"
-fi
+# Update complete check function
+run_complete_check() {
+    print_header "COMPLETE SYSTEM CHECK STARTING"
+    echo "This will run all system checks (options 2-7). This may take several minutes..."
+    echo ""
+    read -p "Continue? (y/n): " confirm
+    
+    if [[ ! "$confirm" =~ ^[Yy] ]]; then
+        return
+    fi
+    
+    check_netezza_system_state
+    check_os_performance
+    check_active_sessions
+    check_locks_and_blocking
+    check_query_performance
+    check_cost_based_performance
+    
+    print_header "COMPLETE SYSTEM CHECK FINISHED"
+    print_success "All checks completed successfully!"
+    echo "Log file: $LOG_FILE"
+    read -p "Press Enter to continue..."
+}
+
+# Update the enhanced_cost_analysis function to include plan IDs and process IDs
+
+enhanced_cost_analysis() {
+    print_section "Enhanced Cost-Based Analysis (using _V_QRYSTAT + _V_SESSION_DETAIL)"
+    
+    # Top queries by estimated cost - ENHANCED with plan and process IDs
+    execute_sql "
+    SELECT 
+        b.CLIENT_OS_USERNAME, 
+        b.SESSION_USERNAME, 
+        a.QS_SESSIONID, 
+        a.QS_PLANID,                    -- NEW: Plan ID
+        b.SESSION_PID,                  -- NEW: Session Process ID
+        b.PRIORITY_NAME, 
+        b.DBNAME, 
+        b.SCHEMA,
+        SUBSTRING(a.QS_SQL, 1, 100) AS SQL_PREVIEW,
+        a.QS_TSUBMIT, 
+        a.QS_TSTART, 
+        a.QS_ESTCOST, 
+        a.QS_ESTMEM, 
+        a.QS_ESTDISK, 
+        a.QS_RESROWS, 
+        a.QS_RESBYTES,
+        a.QS_RUNTIME                    -- NEW: Runtime if available
+    FROM _V_QRYSTAT a
+    LEFT JOIN _V_SESSION_DETAIL b ON b.SESSION_ID = a.QS_SESSIONID
+    WHERE b.DBNAME IS NOT NULL AND b.DBNAME != 'null'
+    ORDER BY a.QS_ESTCOST DESC
+    LIMIT ${TOP_QUERIES_LIMIT};" "Top Queries by Estimated Cost (Enhanced)"
+    
+    # Top queries by memory usage - ENHANCED
+    print_section "Top Queries by Estimated Memory Usage"
+    execute_sql "
+    SELECT 
+        b.CLIENT_OS_USERNAME, 
+        b.SESSION_USERNAME, 
+        a.QS_SESSIONID, 
+        a.QS_PLANID,                    -- NEW: Plan ID
+        b.SESSION_PID,                  -- NEW: Session Process ID
+        b.PRIORITY_NAME, 
+        b.DBNAME,
+        a.QS_ESTMEM,
+        a.QS_ESTCOST,
+        a.QS_ESTDISK,
+        SUBSTRING(a.QS_SQL, 1, 80) AS SQL_PREVIEW,
+        a.QS_TSTART,
+        a.QS_RUNTIME                    -- NEW: Runtime if available
+    FROM _V_QRYSTAT a
+    LEFT JOIN _V_SESSION_DETAIL b ON b.SESSION_ID = a.QS_SESSIONID
+    WHERE b.DBNAME IS NOT NULL AND b.DBNAME != 'null'
+    AND a.QS_ESTMEM > 0
+    ORDER BY a.QS_ESTMEM DESC
+    LIMIT ${TOP_QUERIES_LIMIT};" "Top Queries by Memory Usage (Enhanced)"
+    
+    # Top queries by disk usage - ENHANCED
+    print_section "Top Queries by Estimated Disk Usage"
+    execute_sql "
+    SELECT 
+        b.CLIENT_OS_USERNAME, 
+        b.SESSION_USERNAME, 
+        a.QS_SESSIONID, 
+        a.QS_PLANID,                    -- NEW: Plan ID
+        b.SESSION_PID,                  -- NEW: Session Process ID
+        b.PRIORITY_NAME, 
+        b.DBNAME,
+        a.QS_ESTDISK,
+        a.QS_ESTCOST,
+        a.QS_ESTMEM,
+        SUBSTRING(a.QS_SQL, 1, 80) AS SQL_PREVIEW,
+        a.QS_TSTART,
+        a.QS_RUNTIME                    -- NEW: Runtime if available
+    FROM _V_QRYSTAT a
+    LEFT JOIN _V_SESSION_DETAIL b ON b.SESSION_ID = a.QS_SESSIONID
+    WHERE b.DBNAME IS NOT NULL AND b.DBNAME != 'null'
+    AND a.QS_ESTDISK > 0
+    ORDER BY a.QS_ESTDISK DESC
+    LIMIT ${TOP_QUERIES_LIMIT};" "Top Queries by Disk Usage (Enhanced)"
+    
+    # NEW: Analysis by Plan ID (find queries using the same execution plan)
+    print_section "Query Analysis by Plan ID (Same Execution Plans)"
+    execute_sql "
+    SELECT 
+        a.QS_PLANID,
+        COUNT(*) AS QUERY_COUNT,
+        COUNT(DISTINCT a.QS_SESSIONID) AS UNIQUE_SESSIONS,
+        COUNT(DISTINCT b.CLIENT_OS_USERNAME) AS UNIQUE_USERS,
+        ROUND(AVG(a.QS_ESTCOST), 2) AS AVG_EST_COST,
+        ROUND(MAX(a.QS_ESTCOST), 2) AS MAX_EST_COST,
+        ROUND(AVG(a.QS_ESTMEM), 2) AS AVG_EST_MEM,
+        ROUND(AVG(a.QS_ESTDISK), 2) AS AVG_EST_DISK,
+        MAX(a.QS_TSTART) AS LAST_EXECUTION,
+        SUBSTRING(MAX(a.QS_SQL), 1, 100) AS SAMPLE_SQL
+    FROM _V_QRYSTAT a
+    LEFT JOIN _V_SESSION_DETAIL b ON b.SESSION_ID = a.QS_SESSIONID
+    WHERE b.DBNAME IS NOT NULL AND b.DBNAME != 'null'
+    AND a.QS_PLANID IS NOT NULL
+    GROUP BY a.QS_PLANID
+    HAVING COUNT(*) > 1
+    ORDER BY QUERY_COUNT DESC, AVG_EST_COST DESC
+    LIMIT 20;" "Queries Grouped by Plan ID"
+    
+    # NEW: Session Process Analysis
+    print_section "Query Analysis by Session Process ID"
+    execute_sql "
+    SELECT 
+        b.SESSION_PID,
+        b.CLIENT_OS_USERNAME,
+        b.SESSION_USERNAME,
+        b.DBNAME,
+        b.PRIORITY_NAME,
+        COUNT(*) AS QUERY_COUNT,
+        ROUND(AVG(a.QS_ESTCOST), 2) AS AVG_EST_COST,
+        ROUND(MAX(a.QS_ESTCOST), 2) AS MAX_EST_COST,
+        ROUND(SUM(a.QS_ESTCOST), 2) AS TOTAL_EST_COST,
+        COUNT(DISTINCT a.QS_PLANID) AS UNIQUE_PLANS,
+        MAX(a.QS_TSTART) AS LAST_QUERY_TIME,
+        SUBSTRING(MAX(a.QS_SQL), 1, 80) AS LATEST_SQL
+    FROM _V_QRYSTAT a
+    LEFT JOIN _V_SESSION_DETAIL b ON b.SESSION_ID = a.QS_SESSIONID
+    WHERE b.DBNAME IS NOT NULL AND b.DBNAME != 'null'
+    AND b.SESSION_PID IS NOT NULL
+    GROUP BY b.SESSION_PID, b.CLIENT_OS_USERNAME, b.SESSION_USERNAME, b.DBNAME, b.PRIORITY_NAME
+    ORDER BY TOTAL_EST_COST DESC
+    LIMIT 20;" "Query Analysis by Session Process"
+    
+    # Analysis by client OS user - ENHANCED
+    print_section "Query Cost Analysis by Client OS User (Enhanced)"
+    execute_sql "
+    SELECT 
+        b.CLIENT_OS_USERNAME,
+        COUNT(*) AS QUERY_COUNT,
+        COUNT(DISTINCT a.QS_SESSIONID) AS UNIQUE_SESSIONS,
+        COUNT(DISTINCT b.SESSION_PID) AS UNIQUE_PROCESSES,
+        COUNT(DISTINCT a.QS_PLANID) AS UNIQUE_PLANS,
+        ROUND(AVG(a.QS_ESTCOST), 2) AS AVG_EST_COST,
+        ROUND(MAX(a.QS_ESTCOST), 2) AS MAX_EST_COST,
+        ROUND(SUM(a.QS_ESTCOST), 2) AS TOTAL_EST_COST,
+        ROUND(AVG(a.QS_ESTMEM), 2) AS AVG_EST_MEM,
+        ROUND(AVG(a.QS_ESTDISK), 2) AS AVG_EST_DISK,
+        MAX(a.QS_TSTART) AS LAST_ACTIVITY
+    FROM _V_QRYSTAT a
+    LEFT JOIN _V_SESSION_DETAIL b ON b.SESSION_ID = a.QS_SESSIONID
+    WHERE b.DBNAME IS NOT NULL AND b.DBNAME != 'null'
+    AND b.CLIENT_OS_USERNAME IS NOT NULL
+    GROUP BY b.CLIENT_OS_USERNAME
+    ORDER BY TOTAL_EST_COST DESC
+    LIMIT 15;" "Enhanced Cost Analysis by Client OS User"
+    
+    # Analysis by database - ENHANCED
+    print_section "Query Cost Analysis by Database (Enhanced)"
+    execute_sql "
+    SELECT 
+        b.DBNAME,
+        COUNT(*) AS QUERY_COUNT,
+        COUNT(DISTINCT a.QS_SESSIONID) AS UNIQUE_SESSIONS,
+        COUNT(DISTINCT b.SESSION_PID) AS UNIQUE_PROCESSES,
+        COUNT(DISTINCT b.CLIENT_OS_USERNAME) AS UNIQUE_USERS,
+        COUNT(DISTINCT a.QS_PLANID) AS UNIQUE_PLANS,
+        ROUND(AVG(a.QS_ESTCOST), 2) AS AVG_EST_COST,
+        ROUND(MAX(a.QS_ESTCOST), 2) AS MAX_EST_COST,
+        ROUND(SUM(a.QS_ESTCOST), 2) AS TOTAL_EST_COST,
+        MAX(a.QS_TSTART) AS LAST_ACTIVITY
+    FROM _V_QRYSTAT a
+    LEFT JOIN _V_SESSION_DETAIL b ON b.SESSION_ID = a.QS_SESSIONID
+    WHERE b.DBNAME IS NOT NULL AND b.DBNAME != 'null'
+    GROUP BY b.DBNAME
+    ORDER BY TOTAL_EST_COST DESC;" "Enhanced Cost Analysis by Database"
+    
+    # Analysis by schema - ENHANCED
+    print_section "Query Cost Analysis by Schema (Enhanced)"
+    execute_sql "
+    SELECT 
+        b.DBNAME,
+        b.SCHEMA,
+        COUNT(*) AS QUERY_COUNT,
+        COUNT(DISTINCT a.QS_SESSIONID) AS UNIQUE_SESSIONS,
+        COUNT(DISTINCT b.SESSION_PID) AS UNIQUE_PROCESSES,
+        COUNT(DISTINCT a.QS_PLANID) AS UNIQUE_PLANS,
+        ROUND(AVG(a.QS_ESTCOST), 2) AS AVG_EST_COST,
+        ROUND(MAX(a.QS_ESTCOST), 2) AS MAX_EST_COST,
+        ROUND(SUM(a.QS_ESTCOST), 2) AS TOTAL_EST_COST,
+        MAX(a.QS_TSTART) AS LAST_ACTIVITY
+    FROM _V_QRYSTAT a
+    LEFT JOIN _V_SESSION_DETAIL b ON b.SESSION_ID = a.QS_SESSIONID
+    WHERE b.DBNAME IS NOT NULL AND b.DBNAME != 'null'
+    AND b.SCHEMA IS NOT NULL
+    GROUP BY b.DBNAME, b.SCHEMA
+    ORDER BY TOTAL_EST_COST DESC
+    LIMIT 20;" "Enhanced Cost Analysis by Schema"
+    
+    # Priority-based analysis - ENHANCED
+    print_section "Query Cost Analysis by Priority (Enhanced)"
+    execute_sql "
+    SELECT 
+        b.PRIORITY_NAME,
+        COUNT(*) AS QUERY_COUNT,
+        COUNT(DISTINCT a.QS_SESSIONID) AS UNIQUE_SESSIONS,
+        COUNT(DISTINCT b.SESSION_PID) AS UNIQUE_PROCESSES,
+        COUNT(DISTINCT a.QS_PLANID) AS UNIQUE_PLANS,
+        ROUND(AVG(a.QS_ESTCOST), 2) AS AVG_EST_COST,
+        ROUND(MAX(a.QS_ESTCOST), 2) AS MAX_EST_COST,
+        ROUND(SUM(a.QS_ESTCOST), 2) AS TOTAL_EST_COST,
+        ROUND(AVG(a.QS_RUNTIME), 2) AS AVG_RUNTIME_SEC
+    FROM _V_QRYSTAT a
+    LEFT JOIN _V_SESSION_DETAIL b ON b.SESSION_ID = a.QS_SESSIONID
+    WHERE b.DBNAME IS NOT NULL AND b.DBNAME != 'null'
+    AND b.PRIORITY_NAME IS NOT NULL
+    GROUP BY b.PRIORITY_NAME
+    ORDER BY TOTAL_EST_COST DESC;" "Enhanced Cost Analysis by Priority"
+    
+    # NEW: Plan efficiency analysis
+    print_section "Plan Efficiency Analysis (Cost vs Runtime)"
+    execute_sql "
+    SELECT 
+        a.QS_PLANID,
+        COUNT(*) AS EXECUTION_COUNT,
+        ROUND(AVG(a.QS_ESTCOST), 2) AS AVG_ESTIMATED_COST,
+        ROUND(AVG(a.QS_RUNTIME), 2) AS AVG_ACTUAL_RUNTIME,
+        ROUND(AVG(a.QS_ESTCOST) / NULLIF(AVG(a.QS_RUNTIME), 0), 2) AS COST_PER_SECOND,
+        ROUND(AVG(a.QS_ESTMEM), 2) AS AVG_EST_MEMORY,
+        ROUND(AVG(a.QS_ESTDISK), 2) AS AVG_EST_DISK,
+        COUNT(DISTINCT b.CLIENT_OS_USERNAME) AS UNIQUE_USERS,
+        SUBSTRING(MAX(a.QS_SQL), 1, 100) AS SAMPLE_SQL
+    FROM _V_QRYSTAT a
+    LEFT JOIN _V_SESSION_DETAIL b ON b.SESSION_ID = a.QS_SESSIONID
+    WHERE b.DBNAME IS NOT NULL AND b.DBNAME != 'null'
+    AND a.QS_PLANID IS NOT NULL
+    AND a.QS_RUNTIME > 0
+    GROUP BY a.QS_PLANID
+    HAVING COUNT(*) >= 2
+    ORDER BY COST_PER_SECOND DESC
+    LIMIT 20;" "Plan Efficiency Analysis"
+}
+
+# Update qrystat_only_analysis function to include new columns
+qrystat_only_analysis() {
+    print_section "Query Statistics Analysis (using _V_QRYSTAT only)"
+    
+    # Top queries by cost - ENHANCED
+    execute_sql "
+    SELECT 
+        QS_SESSIONID,
+        QS_PLANID,                      -- NEW: Plan ID
+        QS_ESTCOST,
+        QS_ESTMEM,
+        QS_ESTDISK,
+        QS_RESROWS,
+        QS_RESBYTES,
+        QS_RUNTIME,                     -- NEW: Runtime
+        QS_TSTART,
+        SUBSTRING(QS_SQL, 1, 100) AS SQL_PREVIEW
+    FROM _V_QRYSTAT
+    WHERE QS_ESTCOST > 0
+    ORDER BY QS_ESTCOST DESC
+    LIMIT ${TOP_QUERIES_LIMIT};" "Top Queries by Estimated Cost (Enhanced)"
+    
+    # Resource usage summary - ENHANCED
+    execute_sql "
+    SELECT 
+        COUNT(*) AS TOTAL_QUERIES,
+        COUNT(DISTINCT QS_PLANID) AS UNIQUE_PLANS,      -- NEW: Unique plans
+        COUNT(DISTINCT QS_SESSIONID) AS UNIQUE_SESSIONS,
+        ROUND(AVG(QS_ESTCOST), 2) AS AVG_EST_COST,
+        ROUND(MAX(QS_ESTCOST), 2) AS MAX_EST_COST,
+        ROUND(AVG(QS_ESTMEM), 2) AS AVG_EST_MEM,
+        ROUND(MAX(QS_ESTMEM), 2) AS MAX_EST_MEM,
+        ROUND(AVG(QS_ESTDISK), 2) AS AVG_EST_DISK,
+        ROUND(MAX(QS_ESTDISK), 2) AS MAX_EST_DISK,
+        ROUND(AVG(QS_RUNTIME), 2) AS AVG_RUNTIME_SEC,   -- NEW: Average runtime
+        ROUND(MAX(QS_RUNTIME), 2) AS MAX_RUNTIME_SEC     -- NEW: Max runtime
+    FROM _V_QRYSTAT;" "Enhanced Query Resource Usage Summary"
+    
+    # NEW: Plan reuse analysis
+    print_section "Query Plan Reuse Analysis"
+    execute_sql "
+    SELECT 
+        QS_PLANID,
+        COUNT(*) AS EXECUTION_COUNT,
+        COUNT(DISTINCT QS_SESSIONID) AS UNIQUE_SESSIONS,
+        ROUND(AVG(QS_ESTCOST), 2) AS AVG_EST_COST,
+        ROUND(AVG(QS_RUNTIME), 2) AS AVG_RUNTIME,
+        MAX(QS_TSTART) AS LAST_EXECUTION,
+        SUBSTRING(MAX(QS_SQL), 1, 80) AS SAMPLE_SQL
+    FROM _V_QRYSTAT
+    WHERE QS_PLANID IS NOT NULL
+    GROUP BY QS_PLANID
+    HAVING COUNT(*) > 1
+    ORDER BY EXECUTION_COUNT DESC
+    LIMIT 20;" "Plan Reuse Analysis"
+}
+
+# Update the column check function to include new columns
+check_view_columns() {
+    local view_name="$1"
+    local expected_columns="$2"
+    
+    echo ""
+    echo -e "${YELLOW}Checking columns in $view_name...${NC}"
+    
+    # Check if view exists first
+    if ! execute_sql "SELECT COUNT(*) FROM $view_name LIMIT 1;" "Test $view_name existence" false; then
+        echo -e "${RED}✗ View $view_name not available${NC}"
+        return
+    fi
+    
+    echo -e "${GREEN}✓ View $view_name is available${NC}"
+    
+    # Get actual column structure
+    echo "Actual columns in $view_name:"
+    if execute_sql "
+    SELECT ATTNAME 
+    FROM _V_ATTRIBUTE 
+    WHERE OBJNAME = '$view_name' 
+    ORDER BY ATTNAME;" "Get columns for $view_name" false; then
+        echo ""
+    else
+        # Fallback method
+        echo "Using fallback method to check columns..."
+        $NZSQL_CMD -c "SELECT * FROM $view_name LIMIT 0;" 2>/dev/null
+    fi
+    
+    # Check specific expected columns
+    echo -e "${CYAN}Checking expected columns:${NC}"
+    for column in $expected_columns; do
+        echo -n "  Testing column $column... "
+        if execute_sql "SELECT $column FROM $view_name LIMIT 1;" "Test column $column" false; then
+            echo -e "${GREEN}✓ Available${NC}"
+        else
+            echo -e "${RED}✗ Not available${NC}"
+        fi
+    done
+}
+
+# Update the column checks in discover_system_views function
+discover_system_views() {
+    # ... existing code ...
+    
+    # Specific column checks for key views - UPDATED with new columns
+    print_section "Key Column Availability Check"
+    
+    check_view_columns "_V_DATABASE" "DATABASE OWNER CREATEDATE OBJID"
+    check_view_columns "_V_DISK" "HW_HWID HW_ROLE HW_DISKSZ HW_DISKMODEL HW_STATE"
+    check_view_columns "_V_SESSION" "ID USERNAME DBNAME STATUS IPADDR CONNTIME PRIORITY"
+    check_view_columns "_V_SESSION_DETAIL" "SESSION_ID CLIENT_OS_USERNAME SESSION_USERNAME DBNAME PRIORITY_NAME SCHEMA SESSION_PID"
+    check_view_columns "_V_QRYHIST" "QH_SESSIONID QH_USER QH_DATABASE QH_TSUBMIT QH_TSTART QH_TEND QH_SQL QH_PRIORITY"
+    check_view_columns "_V_QRYSTAT" "QS_SESSIONID QS_PLANID QS_SQL QS_TSUBMIT QS_TSTART QS_ESTCOST QS_ESTMEM QS_ESTDISK QS_RESROWS QS_RESBYTES QS_RUNTIME"
+    check_view_columns "_V_CPU" "HOST CPU_NUMBER CPU_TYPE CPU_SPEED_MHZ CPU_UTILIZATION_PCT"
+    
+    # ... rest of existing code ...
+}
+
+# Add a new function for specific plan analysis
+analyze_specific_plan() {
+    print_section "Specific Plan Analysis"
+    
+    echo ""
+    read -p "Enter Plan ID to analyze (or press Enter to see available plans): " plan_id
+    
+    if [[ -z "$plan_id" ]]; then
+        # Show available plans
+        execute_sql "
+        SELECT 
+            QS_PLANID,
+            COUNT(*) AS EXECUTION_COUNT,
+            ROUND(AVG(QS_ESTCOST), 2) AS AVG_COST,
+            MAX(QS_TSTART) AS LAST_EXECUTION,
+            SUBSTRING(MAX(QS_SQL), 1, 80) AS SAMPLE_SQL
+        FROM _V_QRYSTAT
+        WHERE QS_PLANID IS NOT NULL
+        GROUP BY QS_PLANID
+        ORDER BY EXECUTION_COUNT DESC
+        LIMIT 20;" "Available Plans"
+        
+        echo ""
+        read -p "Enter Plan ID to analyze: " plan_id
+    fi
+    
+    if [[ -n "$plan_id" ]]; then
+        print_section "Detailed Analysis for Plan ID: $plan_id"
+        
+        # Plan execution details
+        execute_sql "
+        SELECT 
+            a.QS_SESSIONID,
+            b.CLIENT_OS_USERNAME,
+            b.SESSION_USERNAME,
+            b.SESSION_PID,
+            b.DBNAME,
+            b.SCHEMA,
+            a.QS_ESTCOST,
+            a.QS_ESTMEM,
+            a.QS_ESTDISK,
+            a.QS_RUNTIME,
+            a.QS_TSTART,
+            SUBSTRING(a.QS_SQL, 1, 100) AS SQL_PREVIEW
+        FROM _V_QRYSTAT a
+        LEFT JOIN _V_SESSION_DETAIL b ON b.SESSION_ID = a.QS_SESSIONID
+        WHERE a.QS_PLANID = '$plan_id'
+        ORDER BY a.QS_TSTART DESC
+        LIMIT 20;" "Plan $plan_id Execution History"
+        
+        # Plan statistics
+        execute_sql "
+        SELECT 
+            COUNT(*) AS TOTAL_EXECUTIONS,
+            COUNT(DISTINCT QS_SESSIONID) AS UNIQUE_SESSIONS,
+            ROUND(AVG(QS_ESTCOST), 2) AS AVG_EST_COST,
+            ROUND(MIN(QS_ESTCOST), 2) AS MIN_EST_COST,
+            ROUND(MAX(QS_ESTCOST), 2) AS MAX_EST_COST,
+            ROUND(AVG(QS_RUNTIME), 2) AS AVG_RUNTIME_SEC,
+            ROUND(MIN(QS_RUNTIME), 2) AS MIN_RUNTIME_SEC,
+            ROUND(MAX(QS_RUNTIME), 2) AS MAX_RUNTIME_SEC,
+            ROUND(AVG(QS_ESTMEM), 2) AS AVG_EST_MEM,
+            ROUND(AVG(QS_ESTDISK), 2) AS AVG_EST_DISK,
+            MIN(QS_TSTART) AS FIRST_EXECUTION,
+            MAX(QS_TSTART) AS LAST_EXECUTION
+        FROM _V_QRYSTAT
+        WHERE QS_PLANID = '$plan_id';" "Plan $plan_id Statistics"
+        
+        # Users executing this plan
+        execute_sql "
+        SELECT 
+            b.CLIENT_OS_USERNAME,
+            b.SESSION_USERNAME,
+            COUNT(*) AS EXECUTION_COUNT,
+            ROUND(AVG(a.QS_ESTCOST), 2) AS AVG_COST,
+            MAX(a.QS_TSTART) AS LAST_EXECUTION
+        FROM _V_QRYSTAT a
+        LEFT JOIN _V_SESSION_DETAIL b ON b.SESSION_ID = a.QS_SESSIONID
+        WHERE a.QS_PLANID = '$plan_id'
+        AND b.CLIENT_OS_USERNAME IS NOT NULL
+        GROUP BY b.CLIENT_OS_USERNAME, b.SESSION_USERNAME
+        ORDER BY EXECUTION_COUNT DESC;" "Users Executing Plan $plan_id"
+    fi
+    
+    echo ""
+    read -p "Press Enter to continue..."
+}
+
+# Add new menu option to main cost-based analysis
+check_cost_based_performance() {
+    print_header "COST-BASED QUERY PERFORMANCE ANALYSIS"
+    
+    # Check if enhanced views are available
+    print_section "Checking Enhanced Query Analysis Views"
+    
+    local has_qrystat=false
+    local has_session_detail=false
+    
+    if execute_sql "SELECT COUNT(*) FROM _V_QRYSTAT LIMIT 1;" "Test _V_QRYSTAT" false; then
+        print_success "_V_QRYSTAT available - Enhanced cost analysis enabled"
+        has_qrystat=true
+    else
+        print_warning "_V_QRYSTAT not available - Using basic query analysis"
+    fi
+    
+    if execute_sql "SELECT COUNT(*) FROM _V_SESSION_DETAIL LIMIT 1;" "Test _V_SESSION_DETAIL" false; then
+        print_success "_V_SESSION_DETAIL available - Enhanced session analysis enabled"
+        has_session_detail=true
+    else
+        print_warning "_V_SESSION_DETAIL not available - Using basic session analysis"
+    fi
+    
+    if [[ "$has_qrystat" == true && "$has_session_detail" == true ]]; then
+        # Enhanced analysis with both views
+        enhanced_cost_analysis
+        
+        # Offer additional analysis options
+        echo ""
+        print_section "Additional Analysis Options"
+        echo "1. Analyze specific Plan ID"
+        echo "2. Continue to next section"
+        echo ""
+        read -p "Choose an option (1-2): " analysis_choice
+        
+        case $analysis_choice in
+            1) analyze_specific_plan ;;
+            2) ;;
+        esac
+        
+    elif [[ "$has_qrystat" == true ]]; then
+        # Analysis with _V_QRYSTAT only
+        qrystat_only_analysis
+    else
+        # Fallback to basic analysis
+        basic_cost_analysis
+    fi
+}
