@@ -1,73 +1,56 @@
-SYSTEM.ADMIN(ADMIN)=> \d _v_session_detail
-                             View "_V_SESSION_DETAIL"
-      Attribute      |               Type               | Modifier | Default Value
----------------------+----------------------------------+----------+---------------
- SESSION_ID          | INTEGER                          |          |
- PID                 | INTEGER                          |          |
- CONNECT_TIME        | ABSTIME                          |          |
- PRIORITY            | INTEGER                          |          |
- PRIORITY_NAME       | NAME                             |          |
- MAX_PRIORITY        | NATIONAL CHARACTER VARYING(5)    |          |
- MAX_PRIORITY_NAME   | NAME                             |          |
- DB_OID              | NATIONAL CHARACTER VARYING(10)   |          |
- SCHEMAID            | NATIONAL CHARACTER VARYING(10)   |          |
- SESSION_USER_ID     | NATIONAL CHARACTER VARYING(10)   |          |
- CURRENT_USER_ID     | NATIONAL CHARACTER VARYING(10)   |          |
- SESSION_USER_OID    | NATIONAL CHARACTER VARYING(10)   |          |
- CURRENT_USER_OID    | NATIONAL CHARACTER VARYING(10)   |          |
- OPERATING_USER_OID  | NATIONAL CHARACTER VARYING(10)   |          |
- SESSION_USERNAME    | NAME                             |          |
- CURRENT_USERNAME    | NAME                             |          |
- OPERATING_USERNAME  | NAME                             |          |
- DBNAME              | NAME                             |          |
- SCHEMA              | NAME                             |          |
- CLIENT_HOST         | NAME                             |          |
- CLIENT_IP           | NATIONAL CHARACTER VARYING(16)   |          |
- CLIENT_PID          | NATIONAL CHARACTER VARYING(10)   |          |
- CLIENT_TYPE         | INTEGER                          |          |
- CLIENT_TYPE_NAME    | NAME                             |          |
- CLIENT_ID           | INTEGER                          |          |
- SESSION_SOURCE      | BOOLEAN                          |          |
- SESSION_SOURCE_NAME | NAME                             |          |
- SESSION_RESTRICTED  | INTEGER                          |          |
- SESSION_STATE       | INTEGER                          |          |
- SESSION_STATE_NAME  | NAME                             |          |
- ROWSET_LIMIT        | NATIONAL CHARACTER VARYING(10)   |          |
- SESSION_TIMEOUT     | NATIONAL CHARACTER VARYING(10)   |          |
- QUERY_TIMEOUT       | NATIONAL CHARACTER VARYING(10)   |          |
- SER_QUEUE_TIMEOUT   | NATIONAL CHARACTER VARYING(10)   |          |
- MAX_QUERY_RESTARTS  | NATIONAL CHARACTER VARYING(10)   |          |
- COLLECT_HISTORY     | BOOLEAN                          |          |
- CROSS_JOIN_ALLOWED  | NATIONAL CHARACTER VARYING(5)    |          |
- RESOURCE_GROUP_OID  | NATIONAL CHARACTER VARYING(10)   |          |
- RESOURCE_GROUP      | NAME                             |          |
- RESOURCE_PERCENTAGE | NATIONAL CHARACTER VARYING(5)    |          |
- SQLTEXT             | NATIONAL CHARACTER VARYING(8192) |          |
- COMMENT             | NATIONAL CHARACTER VARYING(256)  |          |
- OPID                | NATIONAL CHARACTER VARYING(20)   |          |
- CLIENT_OS_USERNAME  | NAME                             |          |
+--- Heavy Workload Analysis Strategy ---
+1. Analyzing long-running sessions...
+Long-running sessions found:
+------------------------------------------------------------
+Error: command line arg '-longrun' is unknown or invalid.
+Try using 'nzsession -h' and 'nzsession -hc show' for more information.
+Usage: nzsession [-h|-rev] [-hc] <subcmd> [<subcmd options>]
+------------------------------------------------------------
 
-SYSTEM.ADMIN(ADMIN)=> \d _v_qrystat
-                 View "_V_QRYSTAT"
-  Attribute   |  Type   | Modifier | Default Value
---------------+---------+----------+---------------
- QS_SESSIONID | INTEGER |          |
- QS_PLANID    | INTEGER |          |
- QS_CLIENTID  | INTEGER |          |
- QS_CLIIPADDR | NAME    |          |
- QS_SQL       | TEXT    |          |
- QS_STATE     | INTEGER |          |
- QS_TSUBMIT   | ABSTIME |          |
- QS_TSTART    | ABSTIME |          |
- QS_PRIORITY  | INTEGER |          |
- QS_PRITXT    | TEXT    |          |
- QS_ESTCOST   | BIGINT  |          |
- QS_ESTDISK   | BIGINT  |          |
- QS_ESTMEM    | BIGINT  |          |
- QS_SNIPPETS  | INTEGER |          |
- QS_CURSNIPT  | INTEGER |          |
- QS_RESROWS   | BIGINT  |          |
- QS_RESBYTES  | BIGINT  |          |
+2. Analyzing blocked sessions...
+WARNING: Blocked sessions detected!
+------------------------------------------------------------
+Error: command line arg '-blocked' is unknown or invalid.
+Try using 'nzsession -h' and 'nzsession -hc show' for more information.
+Usage: nzsession [-h|-rev] [-hc] <subcmd> [<subcmd options>]
+------------------------------------------------------------
 
+3. Schema-specific analysis for heavy schemas...
+Identifying heavy schemas from recent activity...
+Analyzing schemas with high activity: MEPPR RPLPR CIDPR STGPR HISTDB
 
+Analyzing sessions for schema: MEPPR
+----------------------------------------
+Active sessions in MEPPR: 2
+Error: command line arg '-db' is unknown or invalid.
+Try using 'nzsession -h' and 'nzsession -hc show' for more information.
+Usage: nzsession [-h|-rev] [-hc] <subcmd> [<subcmd options>]
+
+Analyzing sessions for schema: RPLPR
+----------------------------------------
+Active sessions in RPLPR: 2
+Error: command line arg '-db' is unknown or invalid.
+Try using 'nzsession -h' and 'nzsession -hc show' for more information.
+Usage: nzsession [-h|-rev] [-hc] <subcmd> [<subcmd options>]
+
+Analyzing sessions for schema: CIDPR
+----------------------------------------
+Active sessions in CIDPR: 2
+Error: command line arg '-db' is unknown or invalid.
+Try using 'nzsession -h' and 'nzsession -hc show' for more information.
+Usage: nzsession [-h|-rev] [-hc] <subcmd> [<subcmd options>]
+
+Analyzing sessions for schema: STGPR
+----------------------------------------
+Active sessions in STGPR: 2
+Error: command line arg '-db' is unknown or invalid.
+Try using 'nzsession -h' and 'nzsession -hc show' for more information.
+Usage: nzsession [-h|-rev] [-hc] <subcmd> [<subcmd options>]
+
+Analyzing sessions for schema: HISTDB
+----------------------------------------
+Active sessions in HISTDB: 2
+Error: command line arg '-db' is unknown or invalid.
+Try using 'nzsession -h' and 'nzsession -hc show' for more information.
+Usage: nzsession [-h|-rev] [-hc] <subcmd> [<subcmd options>]
 
