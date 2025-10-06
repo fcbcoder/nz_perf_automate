@@ -1343,7 +1343,7 @@ run_complete_check() {
     read -p "Press Enter to continue..."
 }
 
-# Add these missing utility functions after the existing utility functions (around line 90)
+# Add these missing functions right before the main function
 
 #=============================================================================
 # Missing Utility Functions
