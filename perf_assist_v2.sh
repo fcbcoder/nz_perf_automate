@@ -763,6 +763,324 @@ use_nz_plan_for_id() {
         print_warning "nz_plan utility not found in standard locations"
     fi
 }
+
+# Add these functions after the use_nz_plan_for_id function and before the check_system_state function:
+
+# NEW: Generate plans for active session by Session ID
+generate_plans_for_active_session() {
+    local session_id="$1"
+    
+    print_section "Active Queries for Session ID: $session_id"
+    
+    # Get active queries for this session
+    local session_queries_file="/tmp/netezza_session_${session_id}_$(date +%Y%m%d_%H%M%S).txt"
+    
+    $NZSQL_CMD -c "
+    SELECT 
+        QS_SESSIONID,
+        QS_USER,
+        QS_PLANID,
+        QS_ESTCOST,
+        QS_ESTMEM,
+        QS_TSTART,
+        ROUND(EXTRACT(EPOCH FROM (NOW() - QS_TSTART))/60, 1) AS MINUTES_RUNNING,
+        QS_SQL
+    FROM _V_QRYSTAT
+    WHERE QS_SESSIONID = $session_id
+    AND QS_PLANID IS NOT NULL
+    ORDER BY QS_ESTCOST DESC;" > "$session_queries_file" 2>/dev/null
+    
+    if [[ -s "$session_queries_file" ]]; then
+        echo "Active queries found for Session $session_id:"
+        echo "=============================================================="
+        $NZSQL_CMD -c "
+        SELECT 
+            QS_SESSIONID,
+            QS_USER,
+            QS_PLANID,
+            QS_ESTCOST,
+            ROUND(EXTRACT(EPOCH FROM (NOW() - QS_TSTART))/60, 1) AS MINUTES_RUNNING,
+            SUBSTRING(QS_SQL, 1, 100) AS SQL_PREVIEW
+        FROM _V_QRYSTAT
+        WHERE QS_SESSIONID = $session_id
+        AND QS_PLANID IS NOT NULL
+        ORDER BY QS_ESTCOST DESC;" 2>/dev/null
+        echo "=============================================================="
+        
+        # Get the highest cost query for this session
+        local query_info=$(tail -1 "$session_queries_file")
+        local plan_id=$(echo "$query_info" | awk -F'|' '{print $3}' | tr -d ' ')
+        local sql_text=$(echo "$query_info" | awk -F'|' '{print $8}')
+        
+        if [[ -n "$plan_id" && "$plan_id" != "NULL" ]]; then
+            echo ""
+            echo "Generating plans for highest cost query (Plan ID: $plan_id)..."
+            generate_dual_explain_plans "$sql_text" "$plan_id"
+        else
+            print_warning "No valid Plan ID found for session $session_id"
+        fi
+    else
+        print_warning "No active queries found for Session ID: $session_id"
+    fi
+    
+    rm -f "$session_queries_file"
+}
+
+# NEW: Generate plans for active user queries
+generate_plans_for_active_user() {
+    local username="$1"
+    
+    print_section "Active Queries for User: $username"
+    
+    # Get active queries for this user
+    $NZSQL_CMD -c "
+    SELECT 
+        QS_SESSIONID,
+        QS_USER,
+        QS_PLANID,
+        QS_ESTCOST,
+        QS_ESTMEM,
+        QS_TSTART,
+        ROUND(EXTRACT(EPOCH FROM (NOW() - QS_TSTART))/60, 1) AS MINUTES_RUNNING,
+        SUBSTRING(QS_SQL, 1, 100) AS SQL_PREVIEW
+    FROM _V_QRYSTAT
+    WHERE UPPER(QS_USER) = UPPER('$username')
+    AND QS_PLANID IS NOT NULL
+    ORDER BY QS_ESTCOST DESC
+    LIMIT 10;" 2>/dev/null
+    
+    echo ""
+    read -p "Enter Session ID from the list above to analyze: " session_id
+    
+    if [[ "$session_id" =~ ^[0-9]+$ ]]; then
+        generate_plans_for_active_session "$session_id"
+    else
+        print_error "Invalid session ID"
+    fi
+}
+
+# NEW: Generate plans for recent query by number
+generate_plans_for_recent_query_by_number() {
+    local query_num="$1"
+    
+    # Get the query details by row number from _V_QRYHIST
+    local query_details_file="/tmp/netezza_recent_query_${query_num}_$(date +%Y%m%d_%H%M%S).txt"
+    
+    $NZSQL_CMD -c "
+    SELECT 
+        QH_SESSIONID,
+        QH_USER,
+        QH_PLANID,
+        QH_ESTCOST,
+        QH_SQL
+    FROM (
+        SELECT 
+            ROW_NUMBER() OVER (ORDER BY EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)) DESC, QH_ESTCOST DESC) as NUM,
+            QH_SESSIONID,
+            QH_USER,
+            QH_PLANID,
+            QH_ESTCOST,
+            QH_SQL
+        FROM _V_QRYHIST
+        WHERE QH_TEND > NOW() - INTERVAL '2 HOURS'
+        AND QH_PLANID IS NOT NULL
+        AND QH_TSTART IS NOT NULL 
+        AND QH_TEND IS NOT NULL
+        ORDER BY EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)) DESC, QH_ESTCOST DESC
+        LIMIT 20
+    ) numbered_queries
+    WHERE NUM = $query_num;" > "$query_details_file" 2>/dev/null
+    
+    if [[ -s "$query_details_file" ]]; then
+        local query_info=$(tail -1 "$query_details_file")
+        local session_id=$(echo "$query_info" | awk -F'|' '{print $1}' | tr -d ' ')
+        local username=$(echo "$query_info" | awk -F'|' '{print $2}' | tr -d ' ')  
+        local plan_id=$(echo "$query_info" | awk -F'|' '{print $3}' | tr -d ' ')
+        local cost=$(echo "$query_info" | awk -F'|' '{print $4}' | tr -d ' ')
+        local sql_text=$(echo "$query_info" | awk -F'|' '{print $5}')
+        
+        print_section "Selected Recent Query Analysis"
+        echo "Session ID: $session_id"
+        echo "User: $username"
+        echo "Plan ID: $plan_id"
+        echo "Cost: $cost"
+        echo ""
+        echo "SQL:"
+        echo "=============================================================="
+        echo "$sql_text"
+        echo "=============================================================="
+        
+        # Generate both EXPLAIN and nz_plan
+        generate_dual_explain_plans "$sql_text" "$plan_id"
+    else
+        print_error "Could not retrieve query details for query number $query_num"
+    fi
+    
+    rm -f "$query_details_file"
+}
+
+# NEW: Generate plans for recent session
+generate_plans_for_recent_session() {
+    local session_id="$1"
+    
+    print_section "Recent Queries for Session ID: $session_id"
+    
+    # Show recent queries for this session
+    execute_sql "
+    SELECT 
+        QH_SESSIONID,
+        QH_USER,
+        QH_DATABASE,
+        QH_TSTART,
+        QH_TEND,
+        QH_PLANID,
+        QH_ESTCOST,
+        ROUND(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)), 2) AS EXECUTION_SECONDS,
+        SUBSTR(QH_SQL, 1, 100) AS SQL_PREVIEW
+    FROM _V_QRYHIST
+    WHERE QH_SESSIONID = $session_id
+    AND QH_TEND > NOW() - INTERVAL '2 HOURS'
+    AND QH_PLANID IS NOT NULL
+    ORDER BY QH_ESTCOST DESC
+    LIMIT 10;" "Recent Queries for Session $session_id"
+    
+    echo ""
+    read -p "Enter Plan ID from the list above to analyze: " plan_id
+    
+    if [[ "$plan_id" =~ ^[0-9]+$ ]]; then
+        # Get the SQL for this plan ID
+        local sql_text=$($NZSQL_CMD -t -c "SELECT QH_SQL FROM _V_QRYHIST WHERE QH_PLANID = $plan_id AND QH_SESSIONID = $session_id ORDER BY QH_TSTART DESC LIMIT 1;" 2>/dev/null | head -1)
+        
+        if [[ -n "$sql_text" ]]; then
+            generate_dual_explain_plans "$sql_text" "$plan_id"
+        else
+            print_error "Could not retrieve SQL for Plan ID: $plan_id"
+        fi
+    else
+        print_error "Invalid Plan ID"
+    fi
+}
+
+# NEW: Generate plans for recent user queries
+generate_plans_for_recent_user() {
+    local username="$1"
+    
+    print_section "Recent Queries for User: $username"
+    
+    # Show recent queries for this user
+    execute_sql "
+    SELECT 
+        QH_SESSIONID,
+        QH_USER,
+        QH_DATABASE,
+        QH_TSTART,
+        QH_TEND,
+        QH_PLANID,
+        QH_ESTCOST,
+        ROUND(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)), 2) AS EXECUTION_SECONDS,
+        SUBSTR(QH_SQL, 1, 100) AS SQL_PREVIEW
+    FROM _V_QRYHIST
+    WHERE UPPER(QH_USER) = UPPER('$username')
+    AND QH_TEND > NOW() - INTERVAL '2 HOURS'
+    AND QH_PLANID IS NOT NULL
+    ORDER BY QH_ESTCOST DESC
+    LIMIT 10;" "Recent Queries for User $username"
+    
+    echo ""
+    read -p "Enter Session ID from the list above to analyze: " session_id
+    
+    if [[ "$session_id" =~ ^[0-9]+$ ]]; then
+        generate_plans_for_recent_session "$session_id"
+    else
+        print_error "Invalid session ID"
+    fi
+}
+
+# Enhanced nz_plan utility function (from V1)
+use_nz_plan_utility() {
+    print_section "Using nz_plan Utility"
+    
+    echo "This method uses the nz_plan utility to retrieve execution plans by plan ID."
+    echo ""
+    echo "First, let's find plan IDs from recent query history:"
+    
+    execute_sql "
+    SELECT 
+        QH_SESSIONID,
+        QH_USER,
+        QH_DATABASE,
+        QH_TSTART,
+        QH_TEND,
+        ROUND(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)), 2) AS ELAPSED_SECONDS,
+        QH_PLANID,
+        SUBSTR(QH_SQL, 1, 100) AS SQL_PREVIEW
+    FROM _V_QRYHIST
+    WHERE QH_TEND > NOW() - INTERVAL '24 HOURS'
+    AND QH_PLANID IS NOT NULL
+    ORDER BY QH_TEND DESC
+    LIMIT 20;" "Recent Queries with Plan IDs"
+    
+    echo ""
+    read -p "Enter Plan ID: " plan_id
+    
+    if [[ ! "$plan_id" =~ ^[0-9]+$ ]]; then
+        print_error "Invalid plan ID"
+        return
+    fi
+    
+    use_nz_plan_for_id "$plan_id"
+}
+
+# Enhanced custom SQL analysis
+analyze_custom_sql() {
+    echo ""
+    echo "Enter your SQL statement (end with semicolon and press Enter twice):"
+    echo ""
+    
+    sql_statement=""
+    while IFS= read -r line; do
+        if [[ -z "$line" && "$sql_statement" == *";" ]]; then
+            break
+        fi
+        sql_statement="$sql_statement$line "
+    done
+    
+    if [[ -z "$sql_statement" ]]; then
+        print_error "No SQL statement provided"
+        return
+    fi
+    
+    echo ""
+    read -p "Enter database name for EXPLAIN (or press Enter to use current: $NETEZZA_DB): " explain_db
+    if [[ -z "$explain_db" ]]; then
+        explain_db="$NETEZZA_DB"
+    fi
+    
+    print_section "Custom SQL Analysis"
+    echo "SQL Statement: $sql_statement"
+    echo "Target Database: $explain_db"
+    
+    # Generate EXPLAIN plan
+    echo ""
+    echo "Generating EXPLAIN plan..."
+    local explain_cmd="$NZSQL_PATH"
+    if [[ -n "$NETEZZA_HOST" ]]; then
+        explain_cmd="$explain_cmd -host ${NETEZZA_HOST}"
+    fi
+    explain_cmd="$explain_cmd -d ${explain_db} -u ${NETEZZA_USER}"
+    
+    if $explain_cmd -c "EXPLAIN VERBOSE $sql_statement" 2>/dev/null; then
+        print_success "EXPLAIN plan generated successfully"
+    else
+        print_warning "EXPLAIN VERBOSE failed, trying basic EXPLAIN..."
+        $explain_cmd -c "EXPLAIN $sql_statement" 2>/dev/null
+    fi
+    
+    echo ""
+    read -p "Press Enter to continue..."
+}
+
+
 #=============================================================================
 # Core Function 5: System State (Basic but Essential)
 #=============================================================================
