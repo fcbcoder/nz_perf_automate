@@ -250,7 +250,7 @@ check_active_sessions() {
 #=============================================================================
 
 check_query_performance() {
-    print_header "QUERY PERFORMANCE ANALYSIS"
+    print_header "REAL-TIME QUERY PERFORMANCE ANALYSIS"
     
     # Check what views are available
     local has_qrystat=false
@@ -262,11 +262,12 @@ check_query_performance() {
     fi
     
     if [[ "$has_qrystat" == true ]]; then
-        # Real-time analysis with _V_QRYSTAT - CORRECT COLUMNS
+        # Real-time analysis with _V_QRYSTAT - ADD QS_USER COLUMN
         print_section "Current Running Queries (Real-time)"
         execute_sql "
         SELECT 
             QS_SESSIONID,
+            QS_USER,
             QS_PLANID,
             QS_ESTCOST,
             QS_ESTMEM,
@@ -279,14 +280,16 @@ check_query_performance() {
         ORDER BY QS_TSTART
         LIMIT ${TOP_QUERIES_LIMIT};" "Long Running Queries (Real-time)"
         
-        # High cost queries
+        # High cost queries - ADD QS_USER COLUMN
         execute_sql "
         SELECT 
             QS_SESSIONID,
+            QS_USER,
             QS_PLANID,
             QS_ESTCOST,
             QS_ESTMEM,
             QS_TSTART,
+            ROUND(EXTRACT(EPOCH FROM (NOW() - QS_TSTART))/60, 1) AS MINUTES_RUNNING,
             SUBSTRING(QS_SQL, 1, 80) AS SQL_PREVIEW
         FROM _V_QRYSTAT
         WHERE QS_ESTCOST > 100
@@ -294,7 +297,7 @@ check_query_performance() {
         LIMIT ${TOP_QUERIES_LIMIT};" "High Cost Queries (Currently Running)"
         
     else
-        # Historical analysis with _V_QRYHIST - CORRECT COLUMNS FROM V1
+        # Historical analysis with _V_QRYHIST - EXISTING CODE IS CORRECT
         print_section "Query History Analysis (Last 24 Hours)"
         execute_sql "
         SELECT 
@@ -311,7 +314,7 @@ check_query_performance() {
         WHERE QH_TEND > NOW() - INTERVAL '24 HOURS'
         AND QH_TSTART IS NOT NULL 
         AND QH_TEND IS NOT NULL
-        AND EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)) > 30
+        AND EXTRACT(EPOCH FROM (QH_TEND - QH_TEND)) > 30
         ORDER BY EXECUTION_SECONDS DESC
         LIMIT ${TOP_QUERIES_LIMIT};" "Slowest Queries (Last 24h)"
         
@@ -337,75 +340,119 @@ check_query_performance() {
 #=============================================================================
 
 check_cost_based_performance() {
-    print_header "COST-BASED PERFORMANCE ANALYSIS"
+    print_header "HISTORICAL COST ANALYSIS"
     
-    # Focus on _V_QRYSTAT for cost analysis
-    if execute_sql "SELECT COUNT(*) FROM _V_QRYSTAT LIMIT 1;" "Test _V_QRYSTAT" false; then
-        print_success "_V_QRYSTAT available - Enhanced cost analysis"
-        
-        # Top queries by cost
-        execute_sql "
-        SELECT 
-            QS_SESSIONID,
-            QS_PLANID,
-            QS_ESTCOST,
-            QS_ESTMEM,
-            QS_ESTDISK,
-            QS_TSTART,
-            SUBSTRING(QS_SQL, 1, 100) AS SQL_PREVIEW
-        FROM _V_QRYSTAT
-        WHERE QS_ESTCOST > 0
-        ORDER BY QS_ESTCOST DESC
-        LIMIT ${TOP_QUERIES_LIMIT};" "Top Queries by Estimated Cost"
-        
-        # Resource usage summary
-        execute_sql "
-        SELECT 
-            COUNT(*) AS TOTAL_QUERIES,
-            COUNT(DISTINCT QS_PLANID) AS UNIQUE_PLANS,
-            COUNT(DISTINCT QS_SESSIONID) AS UNIQUE_SESSIONS,
-            ROUND(AVG(QS_ESTCOST), 2) AS AVG_EST_COST,
-            ROUND(MAX(QS_ESTCOST), 2) AS MAX_EST_COST,
-            ROUND(AVG(QS_ESTMEM), 2) AS AVG_EST_MEM,
-            ROUND(MAX(QS_ESTMEM), 2) AS MAX_EST_MEM
-        FROM _V_QRYSTAT;" "Query Resource Usage Summary"
-        
-        # Plan analysis - find repeated execution plans
-        execute_sql "
-        SELECT 
-            QS_PLANID,
-            COUNT(*) AS EXECUTION_COUNT,
-            ROUND(AVG(QS_ESTCOST), 2) AS AVG_COST,
-            MAX(QS_TSTART) AS LAST_EXECUTION,
-            SUBSTRING(MAX(QS_SQL), 1, 80) AS SAMPLE_SQL
-        FROM _V_QRYSTAT
-        WHERE QS_PLANID IS NOT NULL
-        GROUP BY QS_PLANID
-        HAVING COUNT(*) > 1
-        ORDER BY EXECUTION_COUNT DESC
-        LIMIT 15;" "Most Frequently Used Plans"
-        
-    else
-        print_warning "_V_QRYSTAT not available - Using _V_QRYHIST for cost analysis"
-        
-        # Fallback to historical cost analysis
-        execute_sql "
-        SELECT 
-            QH_SESSIONID,
-            QH_USER,
-            QH_DATABASE,
-            QH_TSTART,
-            QH_TEND,
-            QH_ESTCOST,
-            QH_RESROWS,
-            ROUND(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)), 2) AS EXECUTION_SECONDS,
-            SUBSTR(QH_SQL, 1, 100) AS SQL_PREVIEW
-        FROM _V_QRYHIST
-        WHERE QH_TEND > NOW() - INTERVAL '24 HOURS'
-        AND QH_ESTCOST > 0
-        ORDER BY QH_ESTCOST DESC
-        LIMIT ${TOP_QUERIES_LIMIT};" "Top Queries by Cost (Last 24h)"
-    fi
+    echo -e "${CYAN}Search Options:${NC}"
+    echo "1. Search by Session ID"
+    echo "2. Search by Username" 
+    echo "3. Show all high-cost queries"
+    echo "4. Return to main menu"
+    echo ""
+    
+    read -p "Choose search method (1-4): " search_method
+    
+    case $search_method in
+        1)
+            read -p "Enter Session ID: " session_id
+            if [[ "$session_id" =~ ^[0-9]+$ ]]; then
+                execute_sql "
+                SELECT 
+                    QH_SESSIONID,
+                    QH_USER,
+                    QH_DATABASE,
+                    QH_TSTART,
+                    QH_TEND,
+                    QH_ESTCOST,
+                    QH_PLANID,
+                    ROUND(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)), 2) AS EXECUTION_SECONDS,
+                    QH_RESROWS,
+                    SUBSTR(QH_SQL, 1, 100) AS SQL_PREVIEW
+                FROM _V_QRYHIST
+                WHERE QH_SESSIONID = ${session_id}
+                AND QH_TSTART IS NOT NULL 
+                AND QH_TEND IS NOT NULL
+                ORDER BY QH_ESTCOST DESC, EXECUTION_SECONDS DESC
+                LIMIT ${TOP_QUERIES_LIMIT};" "Historical Queries for Session ${session_id} (by Cost & Time)"
+            else
+                print_error "Invalid session ID"
+            fi
+            ;;
+        2)
+            read -p "Enter Username: " username
+            if [[ -n "$username" ]]; then
+                execute_sql "
+                SELECT 
+                    QH_SESSIONID,
+                    QH_USER,
+                    QH_DATABASE,
+                    QH_TSTART,
+                    QH_TEND,
+                    QH_ESTCOST,
+                    QH_PLANID,
+                    ROUND(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)), 2) AS EXECUTION_SECONDS,
+                    QH_RESROWS,
+                    SUBSTR(QH_SQL, 1, 100) AS SQL_PREVIEW
+                FROM _V_QRYHIST
+                WHERE UPPER(QH_USER) = UPPER('${username}')
+                AND QH_TSTART IS NOT NULL 
+                AND QH_TEND IS NOT NULL
+                AND QH_TEND > NOW() - INTERVAL '7 DAYS'
+                ORDER BY QH_ESTCOST DESC, EXECUTION_SECONDS DESC
+                LIMIT ${TOP_QUERIES_LIMIT};" "Historical Queries for User ${username} (by Cost & Time)"
+            else
+                print_error "Username cannot be empty"
+            fi
+            ;;
+        3)
+            # Show all high-cost queries - ADD QS_USER TO _V_QRYSTAT QUERIES
+            if execute_sql "SELECT COUNT(*) FROM _V_QRYSTAT LIMIT 1;" "Test _V_QRYSTAT" false; then
+                print_success "_V_QRYSTAT available - Enhanced cost analysis"
+                
+                execute_sql "
+                SELECT 
+                    QS_SESSIONID,
+                    QS_USER,
+                    QS_PLANID,
+                    QS_ESTCOST,
+                    QS_ESTMEM,
+                    QS_ESTDISK,
+                    QS_TSTART,
+                    ROUND(EXTRACT(EPOCH FROM (NOW() - QS_TSTART))/60, 1) AS MINUTES_RUNNING,
+                    SUBSTRING(QS_SQL, 1, 100) AS SQL_PREVIEW
+                FROM _V_QRYSTAT
+                WHERE QS_ESTCOST > 0
+                ORDER BY QS_ESTCOST DESC
+                LIMIT ${TOP_QUERIES_LIMIT};" "Top Queries by Estimated Cost (Active)"
+                
+            else
+                execute_sql "
+                SELECT 
+                    QH_SESSIONID,
+                    QH_USER,
+                    QH_DATABASE,
+                    QH_TSTART,
+                    QH_TEND,
+                    QH_ESTCOST,
+                    QH_PLANID,
+                    ROUND(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)), 2) AS EXECUTION_SECONDS,
+                    SUBSTR(QH_SQL, 1, 100) AS SQL_PREVIEW
+                FROM _V_QRYHIST
+                WHERE QH_TEND > NOW() - INTERVAL '24 HOURS'
+                AND QH_ESTCOST > 0
+                ORDER BY QH_ESTCOST DESC
+                LIMIT ${TOP_QUERIES_LIMIT};" "Top Queries by Cost (Last 24h)"
+            fi
+            ;;
+        4)
+            return
+            ;;
+        *)
+            print_error "Invalid option"
+            ;;
+    esac
+    
+    echo ""
+    read -p "Press Enter to continue..."
 }
 
 #=============================================================================
@@ -416,25 +463,29 @@ interactive_explain_plan() {
     print_header "INTERACTIVE SQL EXPLAIN PLAN ANALYSIS"
     
     echo -e "${CYAN}Available options:${NC}"
-    echo "1. Analyze SQL from recent query history"  
-    echo "2. Use nz_plan utility (requires plan ID)"
-    echo "3. Enter custom SQL for analysis"
-    echo "4. Return to main menu"
+    echo "1. Analyze Active SQL (Session ID or Username → _V_QRYSTAT → explain plan)"  
+    echo "2. Analyze SQL from recent query history (Session ID or Username → _V_QRYHIST → explain plan)"
+    echo "3. Use nz_plan utility (Plan ID)"
+    echo "4. Enter custom SQL for analysis"
+    echo "5. Return to main menu"
     echo ""
     
-    read -p "Choose an option (1-4): " choice
+    read -p "Choose an option (1-5): " choice
     
     case $choice in
         1)
-            analyze_recent_queries
+            analyze_active_sql
             ;;
         2)
-            use_nz_plan_utility  # FROM V1 - THIS WORKS
+            analyze_recent_queries_enhanced
             ;;
         3)
-            analyze_custom_sql
+            use_nz_plan_utility
             ;;
         4)
+            analyze_custom_sql
+            ;;
+        5)
             return
             ;;
         *)
@@ -443,85 +494,232 @@ interactive_explain_plan() {
     esac
 }
 
-analyze_recent_queries() {
-    print_section "Recent Query Analysis"
+# NEW: Analyze Active SQL (Option 4.1)
+analyze_active_sql() {
+    print_section "Active SQL Analysis (_V_QRYSTAT)"
     
-    # Show recent queries with plan IDs
-    execute_sql "
-    SELECT 
-        QH_SESSIONID,
-        QH_USER,
-        QH_DATABASE,
-        QH_TSTART,
-        QH_TEND,
-        QH_PLANID,
-        ROUND(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)), 2) AS ELAPSED_SECONDS,
-        SUBSTR(QH_SQL, 1, 100) AS SQL_PREVIEW
-    FROM _V_QRYHIST
-    WHERE QH_TEND > NOW() - INTERVAL '2 HOURS'
-    AND QH_PLANID IS NOT NULL
-    ORDER BY QH_TEND DESC
-    LIMIT 20;" "Recent Queries with Plan IDs"
-    
-    echo ""
-    read -p "Enter Session ID to analyze: " session_id
-    
-    if [[ "$session_id" =~ ^[0-9]+$ ]]; then
-        execute_sql "
-        SELECT 
-            QH_SESSIONID,
-            QH_USER,
-            QH_DATABASE,
-            QH_TSTART,
-            QH_TEND,
-            QH_PLANID,
-            QH_ESTCOST,
-            QH_ESTMEM,
-            QH_RESROWS,
-            ROUND(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)), 2) AS ELAPSED_SECONDS,
-            SUBSTR(QH_SQL, 1, 500) AS SQL_TEXT
-        FROM _V_QRYHIST
-        WHERE QH_SESSIONID = ${session_id}
-        ORDER BY QH_TSTART DESC;" "Detailed Analysis for Session ${session_id}"
-    else
-        print_error "Invalid session ID"
-    fi
-}
-
-use_nz_plan_utility() {
-    # EXACT COPY FROM V1 - THIS WORKS PERFECTLY
-    print_section "Using nz_plan Utility"
-    
-    echo "This method uses the nz_plan utility to retrieve execution plans by plan ID."
-    echo ""
-    echo "First, let's find plan IDs from recent query history:"
-    
-    # Show recent queries with their potential plan IDs
-    execute_sql "
-    SELECT 
-        QH_SESSIONID,
-        QH_USER,
-        QH_DATABASE,
-        QH_TSTART,
-        QH_TEND,
-        ROUND(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)), 2) AS ELAPSED_SECONDS,
-        QH_PLANID,
-        SUBSTR(QH_SQL, 1, 100) AS SQL_PREVIEW
-    FROM _V_QRYHIST
-    WHERE QH_TEND > NOW() - INTERVAL '24 HOURS'
-    AND QH_PLANID IS NOT NULL
-    ORDER BY QH_TEND DESC
-    LIMIT 20;" "Recent Queries with Plan IDs"
-    
-    echo ""
-    read -p "Enter Plan ID: " plan_id
-    
-    if [[ ! "$plan_id" =~ ^[0-9]+$ ]]; then
-        print_error "Invalid plan ID"
+    # First check if _V_QRYSTAT is available
+    if ! execute_sql "SELECT COUNT(*) FROM _V_QRYSTAT LIMIT 1;" "Test _V_QRYSTAT" false; then
+        print_error "_V_QRYSTAT not available. Use option 2 for historical analysis."
         return
     fi
     
-    # Check if nz_plan utility is available
+    # Show all active queries with plan IDs, cost, ordered by execution time
+    print_section "Active Queries (Ordered by Execution Time & Cost)"
+    execute_sql "
+    SELECT 
+        ROW_NUMBER() OVER (ORDER BY EXTRACT(EPOCH FROM (NOW() - QS_TSTART)) DESC, QS_ESTCOST DESC) as NUM,
+        QS_SESSIONID,
+        QS_USER,
+        QS_PLANID,
+        QS_ESTCOST,
+        QS_ESTMEM,
+        QS_TSTART,
+        ROUND(EXTRACT(EPOCH FROM (NOW() - QS_TSTART))/60, 1) AS MINUTES_RUNNING,
+        SUBSTRING(QS_SQL, 1, 80) AS SQL_PREVIEW
+    FROM _V_QRYSTAT
+    WHERE QS_PLANID IS NOT NULL
+    ORDER BY MINUTES_RUNNING DESC, QS_ESTCOST DESC
+    LIMIT 20;" "Active Queries with Plan IDs"
+    
+    echo ""
+    echo "Search Options:"
+    echo "1. Select by query number (from list above)"
+    echo "2. Search by Session ID"
+    echo "3. Search by Username"
+    echo ""
+    
+    read -p "Choose search method (1-3): " search_method
+    
+    case $search_method in
+        1)
+            read -p "Enter query number (1-20): " query_num
+            if [[ "$query_num" =~ ^[0-9]+$ ]] && [[ "$query_num" -ge 1 ]] && [[ "$query_num" -le 20 ]]; then
+                generate_plans_for_active_query_by_number "$query_num"
+            else
+                print_error "Invalid query number"
+            fi
+            ;;
+        2)
+            read -p "Enter Session ID: " session_id
+            if [[ "$session_id" =~ ^[0-9]+$ ]]; then
+                generate_plans_for_active_session "$session_id"
+            else
+                print_error "Invalid session ID"
+            fi
+            ;;
+        3)
+            read -p "Enter Username: " username
+            if [[ -n "$username" ]]; then
+                generate_plans_for_active_user "$username"
+            else
+                print_error "Username cannot be empty"
+            fi
+            ;;
+        *)
+            print_error "Invalid option"
+            ;;
+    esac
+}
+
+# ENHANCED: Analyze Recent Queries (Option 4.2)  
+analyze_recent_queries_enhanced() {
+    print_section "Recent Query History Analysis (_V_QRYHIST)"
+    
+    # Show all recent queries with plan IDs, cost, ordered by execution time
+    print_section "Recent Queries (Ordered by Execution Time & Cost)"
+    execute_sql "
+    SELECT 
+        ROW_NUMBER() OVER (ORDER BY EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)) DESC, QH_ESTCOST DESC) as NUM,
+        QH_SESSIONID,
+        QH_USER,
+        QH_DATABASE,
+        QH_TSTART,
+        QH_TEND,
+        QH_PLANID,
+        QH_ESTCOST,
+        ROUND(EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)), 2) AS EXECUTION_SECONDS,
+        SUBSTR(QH_SQL, 1, 80) AS SQL_PREVIEW
+    FROM _V_QRYHIST
+    WHERE QH_TEND > NOW() - INTERVAL '2 HOURS'
+    AND QH_PLANID IS NOT NULL
+    AND QH_TSTART IS NOT NULL 
+    AND QH_TEND IS NOT NULL
+    ORDER BY EXECUTION_SECONDS DESC, QH_ESTCOST DESC
+    LIMIT 20;" "Recent Queries with Plan IDs"
+    
+    echo ""
+    echo "Search Options:"
+    echo "1. Select by query number (from list above)"
+    echo "2. Search by Session ID"
+    echo "3. Search by Username"
+    echo ""
+    
+    read -p "Choose search method (1-3): " search_method
+    
+    case $search_method in
+        1)
+            read -p "Enter query number (1-20): " query_num
+            if [[ "$query_num" =~ ^[0-9]+$ ]] && [[ "$query_num" -ge 1 ]] && [[ "$query_num" -le 20 ]]; then
+                generate_plans_for_recent_query_by_number "$query_num"
+            else
+                print_error "Invalid query number"
+            fi
+            ;;
+        2)
+            read -p "Enter Session ID: " session_id
+            if [[ "$session_id" =~ ^[0-9]+$ ]]; then
+                generate_plans_for_recent_session "$session_id"
+            else
+                print_error "Invalid session ID"
+            fi
+            ;;
+        3)
+            read -p "Enter Username: " username
+            if [[ -n "$username" ]]; then
+                generate_plans_for_recent_user "$username"
+            else
+                print_error "Username cannot be empty"
+            fi
+            ;;
+        *)
+            print_error "Invalid option"
+            ;;
+    esac
+}
+
+# NEW: Generate Both EXPLAIN and nz_plan for Active Query
+generate_plans_for_active_query_by_number() {
+    local query_num="$1"
+    
+    # Get the query details by row number
+    local query_details_file="/tmp/netezza_active_query_${query_num}_$(date +%Y%m%d_%H%M%S).txt"
+    
+    $NZSQL_CMD -c "
+    SELECT 
+        QS_SESSIONID,
+        QS_USER,
+        QS_PLANID,
+        QS_ESTCOST,
+        QS_SQL
+    FROM (
+        SELECT 
+            ROW_NUMBER() OVER (ORDER BY EXTRACT(EPOCH FROM (NOW() - QS_TSTART)) DESC, QS_ESTCOST DESC) as NUM,
+            QS_SESSIONID,
+            QS_USER,
+            QS_PLANID,
+            QS_ESTCOST,
+            QS_SQL
+        FROM _V_QRYSTAT
+        WHERE QS_PLANID IS NOT NULL
+        ORDER BY EXTRACT(EPOCH FROM (NOW() - QS_TSTART)) DESC, QS_ESTCOST DESC
+        LIMIT 20
+    ) numbered_queries
+    WHERE NUM = $query_num;" > "$query_details_file" 2>/dev/null
+    
+    if [[ -s "$query_details_file" ]]; then
+        local query_info=$(tail -1 "$query_details_file")
+        local session_id=$(echo "$query_info" | awk -F'|' '{print $1}' | tr -d ' ')
+        local username=$(echo "$query_info" | awk -F'|' '{print $2}' | tr -d ' ')  
+        local plan_id=$(echo "$query_info" | awk -F'|' '{print $3}' | tr -d ' ')
+        local cost=$(echo "$query_info" | awk -F'|' '{print $4}' | tr -d ' ')
+        local sql_text=$(echo "$query_info" | awk -F'|' '{print $5}')
+        
+        print_section "Selected Active Query Analysis"
+        echo "Session ID: $session_id"
+        echo "User: $username"
+        echo "Plan ID: $plan_id"
+        echo "Cost: $cost"
+        echo ""
+        echo "SQL:"
+        echo "=============================================================="
+        echo "$sql_text"
+        echo "=============================================================="
+        
+        # Generate both EXPLAIN and nz_plan
+        generate_dual_explain_plans "$sql_text" "$plan_id"
+    else
+        print_error "Could not retrieve query details for query number $query_num"
+    fi
+    
+    rm -f "$query_details_file"
+}
+
+# NEW: Generate Both EXPLAIN and nz_plan
+generate_dual_explain_plans() {
+    local sql_text="$1"
+    local plan_id="$2"
+    
+    echo ""
+    print_section "Method 1: EXPLAIN Plan (SQL-based)"
+    echo "=============================================================="
+    if execute_sql "EXPLAIN VERBOSE $sql_text" "EXPLAIN Plan Generation" true; then
+        print_success "EXPLAIN plan generated successfully"
+    else
+        print_warning "EXPLAIN VERBOSE failed, trying basic EXPLAIN..."
+        execute_sql "EXPLAIN $sql_text" "Basic EXPLAIN Plan" true
+    fi
+    
+    echo ""
+    print_section "Method 2: nz_plan Utility (Plan ID: $plan_id)"
+    echo "=============================================================="
+    
+    if [[ -n "$plan_id" && "$plan_id" != "NULL" && "$plan_id" =~ ^[0-9]+$ ]]; then
+        # Use the existing nz_plan utility function
+        use_nz_plan_for_id "$plan_id"
+    else
+        print_warning "No valid Plan ID available for nz_plan utility"
+    fi
+    
+    echo ""
+    read -p "Press Enter to continue..."
+}
+
+# NEW: Simplified nz_plan function for specific plan ID
+use_nz_plan_for_id() {
+    local plan_id="$1"
+    
+    # Check if nz_plan utility is available (reuse existing logic)
     local nz_plan_path="/nz/support/contrib/bin/nz_plan"
     local alt_paths=(
         "/opt/nz/support/contrib/bin/nz_plan"
@@ -543,73 +741,28 @@ use_nz_plan_utility() {
         done
     fi
     
-    if [[ -z "$found_nz_plan" ]]; then
-        print_warning "nz_plan utility not found in standard locations."
-        read -p "Enter full path to nz_plan utility (or press Enter to skip): " custom_path
+    if [[ -n "$found_nz_plan" ]]; then
+        local plan_file="/tmp/netezza_plan_${plan_id}_$(date +%Y%m%d_%H%M%S).pln"
         
-        if [[ -n "$custom_path" && -f "$custom_path" && -x "$custom_path" ]]; then
-            found_nz_plan="$custom_path"
+        echo "Using nz_plan utility: $found_nz_plan"
+        echo "Plan ID: $plan_id"
+        
+        if "$found_nz_plan" "$plan_id" > "$plan_file" 2>&1; then
+            print_success "nz_plan executed successfully!"
+            echo ""
+            cat "$plan_file"
+            echo ""
+            echo "Plan saved to: $plan_file"
         else
-            print_error "nz_plan utility not available"
-            return
+            print_error "nz_plan execution failed"
+            echo "Error output:"
+            cat "$plan_file"
+            rm -f "$plan_file"
         fi
-    fi
-    
-    print_section "Generating Plan using nz_plan utility"
-    print_success "Using nz_plan at: $found_nz_plan"
-    
-    # Create output file
-    local plan_file="/tmp/netezza_plan_${plan_id}_$(date +%Y%m%d_%H%M%S).pln"
-    
-    echo "Executing: $found_nz_plan $plan_id"
-    
-    if "$found_nz_plan" "$plan_id" > "$plan_file" 2>&1; then
-        print_success "Plan generated successfully!"
-        echo ""
-        echo "Plan contents:"
-        echo "=============================================================="
-        cat "$plan_file"
-        echo "=============================================================="
-        echo ""
-        echo "Plan saved to: $plan_file"
     else
-        print_error "Failed to generate plan with nz_plan utility"
-        echo "Error output:"
-        cat "$plan_file"
-        rm -f "$plan_file"
+        print_warning "nz_plan utility not found in standard locations"
     fi
 }
-
-analyze_custom_sql() {
-    echo ""
-    echo "Enter your SQL statement (end with semicolon and press Enter twice):"
-    
-    sql_statement=""
-    while IFS= read -r line; do
-        if [[ -z "$line" && "$sql_statement" == *";" ]]; then
-            break
-        fi
-        sql_statement="$sql_statement$line "
-    done
-    
-    if [[ -z "$sql_statement" ]]; then
-        print_error "No SQL statement provided"
-        return
-    fi
-    
-    print_section "SQL Analysis"
-    echo "SQL Statement: $sql_statement"
-    
-    # Basic EXPLAIN
-    echo ""
-    echo "Generating EXPLAIN plan..."
-    if execute_sql "EXPLAIN $sql_statement" "Custom SQL Explain Plan" true; then
-        print_success "Explain plan generated successfully"
-    else
-        print_error "Failed to generate explain plan"
-    fi
-}
-
 #=============================================================================
 # Core Function 5: System State (Basic but Essential)
 #=============================================================================
