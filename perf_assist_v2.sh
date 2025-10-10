@@ -267,7 +267,6 @@ check_query_performance() {
         execute_sql "
         SELECT 
             QS_SESSIONID,
-            QS_USER,
             QS_PLANID,
             QS_ESTCOST,
             QS_ESTMEM,
@@ -284,7 +283,6 @@ check_query_performance() {
         execute_sql "
         SELECT 
             QS_SESSIONID,
-            QS_USER,
             QS_PLANID,
             QS_ESTCOST,
             QS_ESTMEM,
@@ -312,9 +310,9 @@ check_query_performance() {
             SUBSTR(QH_SQL, 1, 80) AS SQL_PREVIEW
         FROM _V_QRYHIST
         WHERE QH_TEND > NOW() - INTERVAL '24 HOURS'
-        AND QH_TSTART IS NOT NULL 
-        AND QH_TEND IS NOT NULL
-        AND EXTRACT(EPOCH FROM (QH_TEND - QH_TEND)) > 30
+        --AND QH_TSTART IS NOT NULL 
+        --AND QH_TEND IS NOT NULL
+        --AND EXTRACT(EPOCH FROM (QH_TEND - QH_TEND)) > 30
         ORDER BY EXECUTION_SECONDS DESC
         LIMIT ${TOP_QUERIES_LIMIT};" "Slowest Queries (Last 24h)"
         
@@ -327,8 +325,8 @@ check_query_performance() {
             ROUND(SUM(QH_ESTCOST), 2) AS TOTAL_EST_COST
         FROM _V_QRYHIST
         WHERE QH_TEND > NOW() - INTERVAL '24 HOURS'
-        AND QH_TSTART IS NOT NULL 
-        AND QH_TEND IS NOT NULL
+        --AND QH_TSTART IS NOT NULL 
+        --AND QH_TEND IS NOT NULL
         GROUP BY QH_USER
         ORDER BY QUERY_COUNT DESC
         LIMIT 10;" "Top Users by Query Activity"
@@ -411,7 +409,6 @@ check_cost_based_performance() {
                 execute_sql "
                 SELECT 
                     QS_SESSIONID,
-                    QS_USER,
                     QS_PLANID,
                     QS_ESTCOST,
                     QS_ESTMEM,
@@ -494,7 +491,8 @@ interactive_explain_plan() {
     esac
 }
 
-# NEW: Analyze Active SQL (Option 4.1)
+# Fix analyze_active_sql function - REMOVE ROW_NUMBER() window function
+
 analyze_active_sql() {
     print_section "Active SQL Analysis (_V_QRYSTAT)"
     
@@ -504,13 +502,11 @@ analyze_active_sql() {
         return
     fi
     
-    # Show all active queries with plan IDs, cost, ordered by execution time
+    # Show all active queries with plan IDs, cost, ordered by execution time - NO ROW_NUMBER()
     print_section "Active Queries (Ordered by Execution Time & Cost)"
     execute_sql "
     SELECT 
-        ROW_NUMBER() OVER (ORDER BY EXTRACT(EPOCH FROM (NOW() - QS_TSTART)) DESC, QS_ESTCOST DESC) as NUM,
         QS_SESSIONID,
-        QS_USER,
         QS_PLANID,
         QS_ESTCOST,
         QS_ESTMEM,
@@ -524,23 +520,14 @@ analyze_active_sql() {
     
     echo ""
     echo "Search Options:"
-    echo "1. Select by query number (from list above)"
-    echo "2. Search by Session ID"
-    echo "3. Search by Username"
+    echo "1. Search by Session ID (from list above)"
+    echo "2. Search by Username"
     echo ""
     
-    read -p "Choose search method (1-3): " search_method
+    read -p "Choose search method (1-2): " search_method
     
     case $search_method in
         1)
-            read -p "Enter query number (1-20): " query_num
-            if [[ "$query_num" =~ ^[0-9]+$ ]] && [[ "$query_num" -ge 1 ]] && [[ "$query_num" -le 20 ]]; then
-                generate_plans_for_active_query_by_number "$query_num"
-            else
-                print_error "Invalid query number"
-            fi
-            ;;
-        2)
             read -p "Enter Session ID: " session_id
             if [[ "$session_id" =~ ^[0-9]+$ ]]; then
                 generate_plans_for_active_session "$session_id"
@@ -548,7 +535,7 @@ analyze_active_sql() {
                 print_error "Invalid session ID"
             fi
             ;;
-        3)
+        2)
             read -p "Enter Username: " username
             if [[ -n "$username" ]]; then
                 generate_plans_for_active_user "$username"
@@ -562,15 +549,15 @@ analyze_active_sql() {
     esac
 }
 
-# ENHANCED: Analyze Recent Queries (Option 4.2)  
+# Fix analyze_recent_queries_enhanced function - REMOVE ROW_NUMBER() window function
+
 analyze_recent_queries_enhanced() {
     print_section "Recent Query History Analysis (_V_QRYHIST)"
     
-    # Show all recent queries with plan IDs, cost, ordered by execution time
+    # Show all recent queries with plan IDs, cost, ordered by execution time - NO ROW_NUMBER()
     print_section "Recent Queries (Ordered by Execution Time & Cost)"
     execute_sql "
     SELECT 
-        ROW_NUMBER() OVER (ORDER BY EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)) DESC, QH_ESTCOST DESC) as NUM,
         QH_SESSIONID,
         QH_USER,
         QH_DATABASE,
@@ -590,23 +577,14 @@ analyze_recent_queries_enhanced() {
     
     echo ""
     echo "Search Options:"
-    echo "1. Select by query number (from list above)"
-    echo "2. Search by Session ID"
-    echo "3. Search by Username"
+    echo "1. Search by Session ID (from list above)"
+    echo "2. Search by Username"
     echo ""
     
-    read -p "Choose search method (1-3): " search_method
+    read -p "Choose search method (1-2): " search_method
     
     case $search_method in
         1)
-            read -p "Enter query number (1-20): " query_num
-            if [[ "$query_num" =~ ^[0-9]+$ ]] && [[ "$query_num" -ge 1 ]] && [[ "$query_num" -le 20 ]]; then
-                generate_plans_for_recent_query_by_number "$query_num"
-            else
-                print_error "Invalid query number"
-            fi
-            ;;
-        2)
             read -p "Enter Session ID: " session_id
             if [[ "$session_id" =~ ^[0-9]+$ ]]; then
                 generate_plans_for_recent_session "$session_id"
@@ -614,7 +592,7 @@ analyze_recent_queries_enhanced() {
                 print_error "Invalid session ID"
             fi
             ;;
-        3)
+        2)
             read -p "Enter Username: " username
             if [[ -n "$username" ]]; then
                 generate_plans_for_recent_user "$username"
@@ -628,62 +606,6 @@ analyze_recent_queries_enhanced() {
     esac
 }
 
-# NEW: Generate Both EXPLAIN and nz_plan for Active Query
-generate_plans_for_active_query_by_number() {
-    local query_num="$1"
-    
-    # Get the query details by row number
-    local query_details_file="/tmp/netezza_active_query_${query_num}_$(date +%Y%m%d_%H%M%S).txt"
-    
-    $NZSQL_CMD -c "
-    SELECT 
-        QS_SESSIONID,
-        QS_USER,
-        QS_PLANID,
-        QS_ESTCOST,
-        QS_SQL
-    FROM (
-        SELECT 
-            ROW_NUMBER() OVER (ORDER BY EXTRACT(EPOCH FROM (NOW() - QS_TSTART)) DESC, QS_ESTCOST DESC) as NUM,
-            QS_SESSIONID,
-            QS_USER,
-            QS_PLANID,
-            QS_ESTCOST,
-            QS_SQL
-        FROM _V_QRYSTAT
-        WHERE QS_PLANID IS NOT NULL
-        ORDER BY EXTRACT(EPOCH FROM (NOW() - QS_TSTART)) DESC, QS_ESTCOST DESC
-        LIMIT 20
-    ) numbered_queries
-    WHERE NUM = $query_num;" > "$query_details_file" 2>/dev/null
-    
-    if [[ -s "$query_details_file" ]]; then
-        local query_info=$(tail -1 "$query_details_file")
-        local session_id=$(echo "$query_info" | awk -F'|' '{print $1}' | tr -d ' ')
-        local username=$(echo "$query_info" | awk -F'|' '{print $2}' | tr -d ' ')  
-        local plan_id=$(echo "$query_info" | awk -F'|' '{print $3}' | tr -d ' ')
-        local cost=$(echo "$query_info" | awk -F'|' '{print $4}' | tr -d ' ')
-        local sql_text=$(echo "$query_info" | awk -F'|' '{print $5}')
-        
-        print_section "Selected Active Query Analysis"
-        echo "Session ID: $session_id"
-        echo "User: $username"
-        echo "Plan ID: $plan_id"
-        echo "Cost: $cost"
-        echo ""
-        echo "SQL:"
-        echo "=============================================================="
-        echo "$sql_text"
-        echo "=============================================================="
-        
-        # Generate both EXPLAIN and nz_plan
-        generate_dual_explain_plans "$sql_text" "$plan_id"
-    else
-        print_error "Could not retrieve query details for query number $query_num"
-    fi
-    
-    rm -f "$query_details_file"
-}
 
 # NEW: Generate Both EXPLAIN and nz_plan
 generate_dual_explain_plans() {
@@ -766,7 +688,8 @@ use_nz_plan_for_id() {
 
 # Add these functions after the use_nz_plan_for_id function and before the check_system_state function:
 
-# NEW: Generate plans for active session by Session ID
+# Fix generate_plans_for_active_session function - REMOVE QS_USER references and fix field positions
+
 generate_plans_for_active_session() {
     local session_id="$1"
     
@@ -778,7 +701,6 @@ generate_plans_for_active_session() {
     $NZSQL_CMD -c "
     SELECT 
         QS_SESSIONID,
-        QS_USER,
         QS_PLANID,
         QS_ESTCOST,
         QS_ESTMEM,
@@ -796,7 +718,6 @@ generate_plans_for_active_session() {
         $NZSQL_CMD -c "
         SELECT 
             QS_SESSIONID,
-            QS_USER,
             QS_PLANID,
             QS_ESTCOST,
             ROUND(EXTRACT(EPOCH FROM (NOW() - QS_TSTART))/60, 1) AS MINUTES_RUNNING,
@@ -807,10 +728,10 @@ generate_plans_for_active_session() {
         ORDER BY QS_ESTCOST DESC;" 2>/dev/null
         echo "=============================================================="
         
-        # Get the highest cost query for this session
+        # Get the highest cost query for this session - FIXED FIELD POSITIONS
         local query_info=$(tail -1 "$session_queries_file")
-        local plan_id=$(echo "$query_info" | awk -F'|' '{print $3}' | tr -d ' ')
-        local sql_text=$(echo "$query_info" | awk -F'|' '{print $8}')
+        local plan_id=$(echo "$query_info" | awk -F'|' '{print $2}' | tr -d ' ')
+        local sql_text=$(echo "$query_info" | awk -F'|' '{print $7}')
         
         if [[ -n "$plan_id" && "$plan_id" != "NULL" ]]; then
             echo ""
@@ -835,18 +756,19 @@ generate_plans_for_active_user() {
     # Get active queries for this user
     $NZSQL_CMD -c "
     SELECT 
-        QS_SESSIONID,
-        QS_USER,
-        QS_PLANID,
-        QS_ESTCOST,
-        QS_ESTMEM,
-        QS_TSTART,
-        ROUND(EXTRACT(EPOCH FROM (NOW() - QS_TSTART))/60, 1) AS MINUTES_RUNNING,
-        SUBSTRING(QS_SQL, 1, 100) AS SQL_PREVIEW
-    FROM _V_QRYSTAT
-    WHERE UPPER(QS_USER) = UPPER('$username')
-    AND QS_PLANID IS NOT NULL
-    ORDER BY QS_ESTCOST DESC
+        q.QS_SESSIONID,
+        s.USERNAME,
+        q.QS_PLANID,
+        q.QS_ESTCOST,
+        q.QS_ESTMEM,
+        q.QS_TSTART,
+        ROUND(EXTRACT(EPOCH FROM (NOW() - q.QS_TSTART))/60, 1) AS MINUTES_RUNNING,
+        SUBSTRING(q.QS_SQL, 1, 100) AS SQL_PREVIEW
+    FROM _V_QRYSTAT q
+    JOIN _V_SESSION s ON q.QS_SESSIONID = s.ID
+    WHERE UPPER(s.USERNAME) = UPPER('$username')
+    AND q.QS_PLANID IS NOT NULL
+    ORDER BY q.QS_ESTCOST DESC
     LIMIT 10;" 2>/dev/null
     
     echo ""
@@ -859,65 +781,7 @@ generate_plans_for_active_user() {
     fi
 }
 
-# NEW: Generate plans for recent query by number
-generate_plans_for_recent_query_by_number() {
-    local query_num="$1"
-    
-    # Get the query details by row number from _V_QRYHIST
-    local query_details_file="/tmp/netezza_recent_query_${query_num}_$(date +%Y%m%d_%H%M%S).txt"
-    
-    $NZSQL_CMD -c "
-    SELECT 
-        QH_SESSIONID,
-        QH_USER,
-        QH_PLANID,
-        QH_ESTCOST,
-        QH_SQL
-    FROM (
-        SELECT 
-            ROW_NUMBER() OVER (ORDER BY EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)) DESC, QH_ESTCOST DESC) as NUM,
-            QH_SESSIONID,
-            QH_USER,
-            QH_PLANID,
-            QH_ESTCOST,
-            QH_SQL
-        FROM _V_QRYHIST
-        WHERE QH_TEND > NOW() - INTERVAL '2 HOURS'
-        AND QH_PLANID IS NOT NULL
-        AND QH_TSTART IS NOT NULL 
-        AND QH_TEND IS NOT NULL
-        ORDER BY EXTRACT(EPOCH FROM (QH_TEND - QH_TSTART)) DESC, QH_ESTCOST DESC
-        LIMIT 20
-    ) numbered_queries
-    WHERE NUM = $query_num;" > "$query_details_file" 2>/dev/null
-    
-    if [[ -s "$query_details_file" ]]; then
-        local query_info=$(tail -1 "$query_details_file")
-        local session_id=$(echo "$query_info" | awk -F'|' '{print $1}' | tr -d ' ')
-        local username=$(echo "$query_info" | awk -F'|' '{print $2}' | tr -d ' ')  
-        local plan_id=$(echo "$query_info" | awk -F'|' '{print $3}' | tr -d ' ')
-        local cost=$(echo "$query_info" | awk -F'|' '{print $4}' | tr -d ' ')
-        local sql_text=$(echo "$query_info" | awk -F'|' '{print $5}')
-        
-        print_section "Selected Recent Query Analysis"
-        echo "Session ID: $session_id"
-        echo "User: $username"
-        echo "Plan ID: $plan_id"
-        echo "Cost: $cost"
-        echo ""
-        echo "SQL:"
-        echo "=============================================================="
-        echo "$sql_text"
-        echo "=============================================================="
-        
-        # Generate both EXPLAIN and nz_plan
-        generate_dual_explain_plans "$sql_text" "$plan_id"
-    else
-        print_error "Could not retrieve query details for query number $query_num"
-    fi
-    
-    rm -f "$query_details_file"
-}
+
 
 # NEW: Generate plans for recent session
 generate_plans_for_recent_session() {
