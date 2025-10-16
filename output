@@ -1,56 +1,83 @@
---- Heavy Workload Analysis Strategy ---
-1. Analyzing long-running sessions...
-Long-running sessions found:
-------------------------------------------------------------
-Error: command line arg '-longrun' is unknown or invalid.
-Try using 'nzsession -h' and 'nzsession -hc show' for more information.
-Usage: nzsession [-h|-rev] [-hc] <subcmd> [<subcmd options>]
-------------------------------------------------------------
-
-2. Analyzing blocked sessions...
-WARNING: Blocked sessions detected!
-------------------------------------------------------------
-Error: command line arg '-blocked' is unknown or invalid.
-Try using 'nzsession -h' and 'nzsession -hc show' for more information.
-Usage: nzsession [-h|-rev] [-hc] <subcmd> [<subcmd options>]
-------------------------------------------------------------
-
-3. Schema-specific analysis for heavy schemas...
-Identifying heavy schemas from recent activity...
-Analyzing schemas with high activity: MEPPR RPLPR CIDPR STGPR HISTDB
-
-Analyzing sessions for schema: MEPPR
-----------------------------------------
-Active sessions in MEPPR: 2
-Error: command line arg '-db' is unknown or invalid.
-Try using 'nzsession -h' and 'nzsession -hc show' for more information.
-Usage: nzsession [-h|-rev] [-hc] <subcmd> [<subcmd options>]
-
-Analyzing sessions for schema: RPLPR
-----------------------------------------
-Active sessions in RPLPR: 2
-Error: command line arg '-db' is unknown or invalid.
-Try using 'nzsession -h' and 'nzsession -hc show' for more information.
-Usage: nzsession [-h|-rev] [-hc] <subcmd> [<subcmd options>]
-
-Analyzing sessions for schema: CIDPR
-----------------------------------------
-Active sessions in CIDPR: 2
-Error: command line arg '-db' is unknown or invalid.
-Try using 'nzsession -h' and 'nzsession -hc show' for more information.
-Usage: nzsession [-h|-rev] [-hc] <subcmd> [<subcmd options>]
-
-Analyzing sessions for schema: STGPR
-----------------------------------------
-Active sessions in STGPR: 2
-Error: command line arg '-db' is unknown or invalid.
-Try using 'nzsession -h' and 'nzsession -hc show' for more information.
-Usage: nzsession [-h|-rev] [-hc] <subcmd> [<subcmd options>]
-
-Analyzing sessions for schema: HISTDB
-----------------------------------------
-Active sessions in HISTDB: 2
-Error: command line arg '-db' is unknown or invalid.
-Try using 'nzsession -h' and 'nzsession -hc show' for more information.
-Usage: nzsession [-h|-rev] [-hc] <subcmd> [<subcmd options>]
+HISTDB.ADM_USR(ADMIN)=> \d NZ_QUERY_HISTORY
+                                Table "NZ_QUERY_HISTORY"
+             Attribute             |           Type           | Modifier | Default Value
+-----------------------------------+--------------------------+----------+---------------
+ QH_SESSIONID                      | INTEGER                  |          |
+ QH_PLANID                         | INTEGER                  |          |
+ QH_CLIENTID                       | INTEGER                  |          |
+ QH_CLIIPADDR                      | CHARACTER VARYING(255)   |          |
+ QH_DATABASE                       | CHARACTER VARYING(255)   |          |
+ QH_USER                           | CHARACTER VARYING(255)   |          |
+ QH_SQL                            | CHARACTER VARYING(63000) |          |
+ QH_TSUBMIT                        | TIMESTAMP                |          |
+ QH_TSTART                         | TIMESTAMP                |          |
+ QH_TEND                           | TIMESTAMP                |          |
+ QH_PRIORITY                       | INTEGER                  |          |
+ QH_PRITXT                         | CHARACTER VARYING(255)   |          |
+ QH_ESTCOST                        | BIGINT                   |          |
+ QH_ESTDISK                        | BIGINT                   |          |
+ QH_ESTMEM                         | BIGINT                   |          |
+ QH_SNIPPETS                       | INTEGER                  |          |
+ QH_SNPTSDONE                      | INTEGER                  |          |
+ QH_RESROWS                        | BIGINT                   |          |
+ QH_RESBYTES                       | BIGINT                   |          |
+ QH_CLIENT_USER_ID                 | CHARACTER VARYING(255)   |          |
+ QH_CLIENT_APPLICATION_NAME        | CHARACTER VARYING(255)   |          |
+ QH_CLIENT_WORKSTATION_NAME        | CHARACTER VARYING(255)   |          |
+ QH_CLIENT_ACCOUNTING_STRING       | CHARACTER VARYING(255)   |          |
+ HOST_CPU_SECS                     | REAL                     |          |
+ HOST_DISK_READ_SECS               | REAL                     |          |
+ HOST_DISK_WRITE_SECS              | REAL                     |          |
+ HOST_FABRIC_SECS                  | REAL                     |          |
+ SPU_CPU_SECS                      | REAL                     |          |
+ SPU_DISK_READ_SECS                | REAL                     |          |
+ SPU_DISK_WRITE_SECS               | REAL                     |          |
+ SPU_FABRIC_SECS                   | REAL                     |          |
+ MAX_SPU_CPU_SECS                  | REAL                     |          |
+ MAX_SPU_DISK_READ_SECS            | REAL                     |          |
+ MAX_SPU_DISK_WRITE_SECS           | REAL                     |          |
+ MAX_SPU_FABRIC_SECS               | REAL                     |          |
+ SQB                               | BYTEINT                  |          |
+ FIT                               | BYTEINT                  |          |
+ PLANNER_ESTIMATE_SECS             | REAL                     |          |
+ SQB_ESTIMATE_SECS                 | REAL                     |          |
+ SPU_MEM_PEAK                      | INTEGER                  |          |
+ HOST_MEM_PEAK                     | INTEGER                  |          |
+ DOWNLOAD_RATE                     | REAL                     |          |
+ WEIGHT                            | REAL                     |          |
+ GK_WAIT_SECS                      | REAL                     |          |
+ GRA_WAIT_SECS                     | REAL                     |          |
+ SN_WAIT_SECS                      | REAL                     |          |
+ EXECUTION_SECS                    | REAL                     |          |
+ IDLE_SECS                         | REAL                     |          |
+ ABORTED                           | BYTEINT                  |          |
+ SPU_DATA_DISK_READ_SECS           | REAL                     |          |
+ SPU_DATA_DISK_WRITE_SECS          | REAL                     |          |
+ SPU_TEMP_DISK_READ_SECS           | REAL                     |          |
+ SPU_TEMP_DISK_WRITE_SECS          | REAL                     |          |
+ MAX_SPU_DATA_DISK_READ_SECS       | REAL                     |          |
+ MAX_SPU_DATA_DISK_WRITE_SECS      | REAL                     |          |
+ MAX_SPU_TEMP_DISK_READ_SECS       | REAL                     |          |
+ MAX_SPU_TEMP_DISK_WRITE_SECS      | REAL                     |          |
+ SPOOLED_MB                        | DOUBLE PRECISION         |          |
+ DOWNLOADED_MB                     | REAL                     |          |
+ MAX_SPU_TEMP_DISK_PAGES_ALLOCATED | INTEGER                  |          |
+ SUBMIT_TIME                       | TIMESTAMP                |          |
+ DONE_TIME                         | TIMESTAMP                |          |
+ PRIOR_PLAN                        | INTEGER                  |          |
+ PLANS_FOLLOW                      | BYTEINT                  |          |
+ DHJ                               | BYTEINT                  |          |
+ SPU_MEM_ESTIMATE                  | INTEGER                  |          |
+ HOST_MEM_ESTIMATE                 | INTEGER                  |          |
+ PARSE_SECS                        | REAL                     |          |
+ REWRITE_SECS                      | REAL                     |          |
+ PLAN_CREATE_SECS                  | REAL                     |          |
+ PREP_SECS                         | REAL                     |          |
+ RECONSTITUTE_SECS                 | REAL                     |          |
+ CACHE_SECS                        | REAL                     |          |
+ SETUP_SECS                        | REAL                     |          |
+ NULL_IO_SECS                      | REAL                     |          |
+ GREED_SECS                        | REAL                     |          |
+ JOB                               | INTEGER                  |          |
+Distributed on random: (round-robin)
 
