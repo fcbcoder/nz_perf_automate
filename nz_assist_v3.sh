@@ -682,7 +682,7 @@ generate_plans_for_active_query_by_number() {
     rm -f "$query_details_file"
 }
 
-# NEW: Generate Both EXPLAIN and nz_plan
+# Update the generate_dual_explain_plans function to use enhanced plan search
 generate_dual_explain_plans() {
     local sql_text="$1"
     local plan_id="$2"
@@ -698,12 +698,12 @@ generate_dual_explain_plans() {
     fi
     
     echo ""
-    print_section "Method 2: nz_plan Utility (Plan ID: $plan_id)"
+    print_section "Method 2: Enhanced nz_plan with Archive Search (Plan ID: $plan_id)"
     echo "=============================================================="
     
     if [[ -n "$plan_id" && "$plan_id" != "NULL" && "$plan_id" =~ ^[0-9]+$ ]]; then
-        # Use the existing nz_plan utility function
-        use_nz_plan_for_id "$plan_id"
+        # Use the enhanced plan search
+        use_nz_plan_for_id_enhanced "$plan_id" true
     else
         print_warning "No valid Plan ID available for nz_plan utility"
     fi
@@ -761,7 +761,204 @@ use_nz_plan_for_id() {
     fi
 }
 
-# Add these functions after the use_nz_plan_for_id function and before the check_system_state function:
+# Add this function after the use_nz_plan_for_id function
+
+#=============================================================================
+# Dynamic Plan Archive Discovery and nz_plan Enhancement
+#=============================================================================
+
+discover_plan_archives() {
+    local base_path="/nzscratch/monitor/log/planarchive"
+    local available_dirs=()
+    
+    print_section "Discovering Plan Archive Directories"
+    
+    if [[ ! -d "$base_path" ]]; then
+        print_warning "Plan archive base directory not found: $base_path"
+        return 1
+    fi
+    
+    # Find all numeric directories and sort them in descending order
+    while IFS= read -r -d '' dir; do
+        local dir_name=$(basename "$dir")
+        if [[ "$dir_name" =~ ^[0-9]+$ ]]; then
+            available_dirs+=("$dir_name")
+        fi
+    done < <(find "$base_path" -maxdepth 1 -type d -print0)
+    
+    # Sort in descending order (newest first)
+    IFS=$'\n' available_dirs=($(sort -nr <<<"${available_dirs[*]}"))
+    unset IFS
+    
+    if [[ ${#available_dirs[@]} -eq 0 ]]; then
+        print_warning "No numeric plan archive directories found in $base_path"
+        return 1
+    fi
+    
+    echo "Found plan archive directories (newest first):"
+    for i in "${!available_dirs[@]}"; do
+        local dir="${available_dirs[$i]}"
+        echo "  $((i+1)). $dir (${base_path}/${dir})"
+    done
+    
+    export PLAN_ARCHIVE_DIRS=("${available_dirs[@]}")
+    export PLAN_ARCHIVE_BASE="$base_path"
+    return 0
+}
+
+# Enhanced nz_plan function with dynamic archive search
+use_nz_plan_for_id_enhanced() {
+    local plan_id="$1"
+    local search_archives="${2:-true}"
+    
+    print_section "Enhanced nz_plan Analysis for Plan ID: $plan_id"
+    
+    # First try the standard nz_plan utility
+    if use_nz_plan_for_id "$plan_id"; then
+        print_success "Plan retrieved using standard nz_plan utility"
+    else
+        print_warning "Standard nz_plan failed, trying plan archive search..."
+        
+        if [[ "$search_archives" == "true" ]]; then
+            search_plan_in_archives "$plan_id"
+        fi
+    fi
+}
+
+search_plan_in_archives() {
+    local plan_id="$1"
+    local found_plan=false
+    
+    # Discover available archives if not already done
+    if [[ -z "${PLAN_ARCHIVE_DIRS[*]}" ]]; then
+        if ! discover_plan_archives; then
+            print_error "Failed to discover plan archives"
+            return 1
+        fi
+    fi
+    
+    print_section "Searching Plan Archives for Plan ID: $plan_id"
+    echo "Searching in ${#PLAN_ARCHIVE_DIRS[@]} archive directories..."
+    echo ""
+    
+    for dir in "${PLAN_ARCHIVE_DIRS[@]}"; do
+        local archive_path="${PLAN_ARCHIVE_BASE}/${dir}"
+        echo "Checking archive: $dir ($archive_path)"
+        
+        # Look for plan files in this archive
+        local plan_files=()
+        if [[ -d "$archive_path" ]]; then
+            # Search for files that might contain this plan ID
+            while IFS= read -r -d '' file; do
+                plan_files+=("$file")
+            done < <(find "$archive_path" -name "*${plan_id}*" -type f -print0 2>/dev/null)
+            
+            # Also search for generic plan files and grep for the plan ID
+            while IFS= read -r -d '' file; do
+                if grep -l "Plan.*${plan_id}" "$file" 2>/dev/null; then
+                    plan_files+=("$file")
+                fi
+            done < <(find "$archive_path" -name "*.pln" -o -name "*.plan" -o -name "plan_*" -type f -print0 2>/dev/null)
+            
+            if [[ ${#plan_files[@]} -gt 0 ]]; then
+                print_success "Found ${#plan_files[@]} potential plan file(s) in archive $dir"
+                
+                for plan_file in "${plan_files[@]}"; do
+                    echo ""
+                    echo "Plan file: $plan_file"
+                    echo "=============================================================="
+                    
+                    # Check if file contains our plan ID
+                    if grep -q "$plan_id" "$plan_file" 2>/dev/null; then
+                        print_success "Plan ID $plan_id found in: $plan_file"
+                        echo ""
+                        echo "Plan Contents:"
+                        echo "=============================================================="
+                        cat "$plan_file"
+                        echo "=============================================================="
+                        found_plan=true
+                        
+                        # Save a copy to tmp for reference
+                        local saved_plan="/tmp/netezza_archived_plan_${plan_id}_$(date +%Y%m%d_%H%M%S).pln"
+                        cp "$plan_file" "$saved_plan" 2>/dev/null
+                        echo ""
+                        echo "Plan saved to: $saved_plan"
+                        break 2  # Exit both loops
+                    else
+                        echo "File does not contain Plan ID $plan_id"
+                    fi
+                done
+            else
+                echo "  No plan files found in archive $dir"
+            fi
+        else
+            echo "  Archive directory not accessible: $archive_path"
+        fi
+        echo ""
+    done
+    
+    if [[ "$found_plan" == false ]]; then
+        print_warning "Plan ID $plan_id not found in any of the ${#PLAN_ARCHIVE_DIRS[@]} plan archives"
+        echo ""
+        echo "Searched archives:"
+        for dir in "${PLAN_ARCHIVE_DIRS[@]}"; do
+            echo "  - $dir"
+        done
+        
+        # Offer manual search option
+        echo ""
+        read -p "Would you like to perform a more comprehensive search? (y/n): " comprehensive_search
+        
+        if [[ "$comprehensive_search" =~ ^[Yy] ]]; then
+            comprehensive_plan_search "$plan_id"
+        fi
+    fi
+}
+
+comprehensive_plan_search() {
+    local plan_id="$1"
+    
+    print_section "Comprehensive Plan Search for Plan ID: $plan_id"
+    echo "This may take a few minutes..."
+    echo ""
+    
+    local search_results="/tmp/netezza_plan_search_${plan_id}_$(date +%Y%m%d_%H%M%S).txt"
+    
+    # Search all files in plan archive base
+    echo "Searching all files in plan archives..."
+    find "$PLAN_ARCHIVE_BASE" -type f -exec grep -l "$plan_id" {} \; 2>/dev/null > "$search_results"
+    
+    if [[ -s "$search_results" ]]; then
+        local file_count=$(wc -l < "$search_results")
+        print_success "Found Plan ID $plan_id in $file_count file(s)"
+        echo ""
+        
+        echo "Files containing Plan ID $plan_id:"
+        cat "$search_results"
+        echo ""
+        
+        read -p "Would you like to view the first matching file? (y/n): " view_first
+        
+        if [[ "$view_first" =~ ^[Yy] ]]; then
+            local first_file=$(head -1 "$search_results")
+            echo ""
+            echo "Contents of: $first_file"
+            echo "=============================================================="
+            cat "$first_file"
+            echo "=============================================================="
+            
+            # Save a copy
+            local saved_plan="/tmp/netezza_comprehensive_plan_${plan_id}_$(date +%Y%m%d_%H%M%S).pln"
+            cp "$first_file" "$saved_plan" 2>/dev/null
+            echo ""
+            echo "Plan saved to: $saved_plan"
+        fi
+    else
+        print_warning "Plan ID $plan_id not found in comprehensive search"
+    fi
+    
+    rm -f "$search_results"
+}
 
 # NEW: Generate plans for active session by Session ID
 generate_plans_for_active_session() {
@@ -995,12 +1192,19 @@ generate_plans_for_recent_user() {
 
 # Enhanced nz_plan utility function (from V1)
 use_nz_plan_utility() {
-    print_section "Using nz_plan Utility"
+    print_section "Enhanced nz_plan Utility with Archive Search"
     
-    echo "This method uses the nz_plan utility to retrieve execution plans by plan ID."
+    echo "This method uses multiple approaches to find execution plans:"
+    echo "1. Standard nz_plan utility"
+    echo "2. Plan archive search (automatic discovery)"
+    echo "3. Comprehensive file search if needed"
     echo ""
-    echo "First, let's find plan IDs from recent query history:"
     
+    # First discover available plan archives
+    discover_plan_archives
+    
+    echo ""
+    echo "Recent queries with Plan IDs:"
     execute_sql "
     SELECT 
         QH_SESSIONID,
@@ -1025,7 +1229,11 @@ use_nz_plan_utility() {
         return
     fi
     
-    use_nz_plan_for_id "$plan_id"
+    # Use the enhanced plan search
+    use_nz_plan_for_id_enhanced "$plan_id" true
+    
+    echo ""
+    read -p "Press Enter to continue..."
 }
 
 # Enhanced custom SQL analysis
