@@ -1,7 +1,8 @@
-cat /tmp/netezza_plan_1970391_20251017_113828.pln
+--- Searching Plan Archives for Plan ID: 1970391 ---
+Note: Plan not found in default location, searching archives...
+Using nz_plan -tar to search compressed plan archives...
+Searching in 0 archive directories (newest first)...
 
-NOTICE:  Trying to access the *.pln file via the nz_view_plan_file script
-         If that doesn't work, try the following
-              nz_plan -tar 1970391
+WARNING: Plan ID 1970391 not found in the first 0 archive directories
 
-This script cannot find/access the requested *.pln file.
+Searched archives:
