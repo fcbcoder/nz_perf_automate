@@ -832,10 +832,10 @@ use_nz_plan_for_id() {
     fi
 }
 
-# Replace the discover_plan_archives function with this enhanced debugging version:
+# Update the discover_plan_archives function to ensure proper variable export:
 
 discover_plan_archives() {
-    local base_path="/nzscratch/monitor/log/planarchive"
+    local base_path="/nzscratch/monitor/log/plansarchive"
     local available_dirs=()
     
     print_section "Discovering Plan Archive Directories"
@@ -910,8 +910,15 @@ discover_plan_archives() {
             echo "  $((i+1)). $dir (${base_path}/${dir})"
         done
         
-        export PLAN_ARCHIVE_DIRS=("${available_dirs[@]}")
-        export PLAN_ARCHIVE_BASE="$base_path"
+        # Export to global variables - make sure these are set in the calling context
+        PLAN_ARCHIVE_DIRS=("${available_dirs[@]}")
+        PLAN_ARCHIVE_BASE="$base_path"
+        
+        # Debug: Confirm the arrays are set
+        echo ""
+        echo "DEBUG: Set PLAN_ARCHIVE_DIRS with ${#PLAN_ARCHIVE_DIRS[@]} elements"
+        echo "DEBUG: Set PLAN_ARCHIVE_BASE to: $PLAN_ARCHIVE_BASE"
+        
         return 0
     else
         print_warning "No numeric plan archive directories found in $base_path"
@@ -957,14 +964,15 @@ use_nz_plan_for_id_enhanced() {
     fi
 }
 
-# Update the search_plan_in_archives function to handle the case when no archives are found:
+# Fix the search_plan_in_archives function to properly use discovered directories:
 
 search_plan_in_archives() {
     local plan_id="$1"
     local found_plan=false
     
-    # Discover available archives if not already done
-    if [[ -z "${PLAN_ARCHIVE_DIRS[*]}" ]]; then
+    # Discover available archives if not already done or if array is empty
+    if [[ -z "${PLAN_ARCHIVE_DIRS[*]}" ]] || [[ ${#PLAN_ARCHIVE_DIRS[@]} -eq 0 ]]; then
+        echo "Rediscovering plan archives..."
         if ! discover_plan_archives; then
             print_error "Failed to discover plan archives automatically"
             echo ""
@@ -986,15 +994,19 @@ search_plan_in_archives() {
     print_section "Searching Plan Archives for Plan ID: $plan_id"
     echo "Note: Plan not found in default location, searching archives..."
     echo "Using nz_plan -tar to search compressed plan archives..."
-    echo "Searching in ${#PLAN_ARCHIVE_DIRS[@]} archive directories (newest first)..."
-    echo ""
     
-    # If we still have 0 directories, something is wrong
+    # Debug: Show what we have
+    echo "Available archive directories: ${#PLAN_ARCHIVE_DIRS[@]}"
+    echo "Archive base: $PLAN_ARCHIVE_BASE"
+    
     if [[ ${#PLAN_ARCHIVE_DIRS[@]} -eq 0 ]]; then
-        print_error "No archive directories available for search"
+        print_error "No archive directories available for search after discovery"
         echo "This indicates that plan archiving may not be set up on this system."
         return 1
     fi
+    
+    echo "Searching in ${#PLAN_ARCHIVE_DIRS[@]} archive directories (newest first)..."
+    echo ""
     
     # Find nz_plan utility
     local nz_plan_path="/nz/support/contrib/bin/nz_plan"
@@ -1022,6 +1034,9 @@ search_plan_in_archives() {
         return 1
     fi
     
+    echo "Using nz_plan utility: $found_nz_plan"
+    echo ""
+    
     local search_count=0
     local max_search=10  # Reasonable limit for archive search
     
@@ -1034,6 +1049,7 @@ search_plan_in_archives() {
         
         local archive_path="${PLAN_ARCHIVE_BASE}/${dir}"
         echo "[$((search_count+1))/${#PLAN_ARCHIVE_DIRS[@]}] Checking archive: $dir"
+        echo "  Path: $archive_path"
         echo "  Command: nz_plan -tar $plan_id -tardir $archive_path"
         
         local archive_plan_file="/tmp/netezza_archive_plan_${plan_id}_${dir}_$(date +%Y%m%d_%H%M%S).pln"
@@ -1041,6 +1057,12 @@ search_plan_in_archives() {
         # CORRECTED SYNTAX: nz_plan -tar <plan_id> -tardir <archive_path>
         if "$found_nz_plan" -tar "$plan_id" -tardir "$archive_path" > "$archive_plan_file" 2>&1; then
             if [[ -s "$archive_plan_file" ]]; then
+                echo "  Output file created, checking content..."
+                
+                # Show first few lines for debugging
+                echo "  First few lines of output:"
+                head -3 "$archive_plan_file" | sed 's/^/    /'
+                
                 # Intelligent validation of archive plan content
                 local has_valid_plan=true
                 
@@ -1049,12 +1071,14 @@ search_plan_in_archives() {
                    grep -q "NOTICE:.*Trying to access" "$archive_plan_file" || \
                    grep -q "ERROR\|FAILED\|not found\|No such file" "$archive_plan_file"; then
                     has_valid_plan=false
+                    echo "  ✗ Error patterns detected in output"
                 fi
                 
                 # Check for meaningful plan content
                 local content_lines=$(grep -v "^NOTICE\|^ERROR\|^This script" "$archive_plan_file" | grep -c ".")
                 if [[ $content_lines -lt 5 ]]; then
                     has_valid_plan=false
+                    echo "  ✗ Insufficient meaningful content ($content_lines lines)"
                 fi
                 
                 if [[ "$has_valid_plan" == true ]]; then
@@ -1084,6 +1108,13 @@ search_plan_in_archives() {
             fi
         else
             echo "  ✗ nz_plan -tar command failed"
+            
+            # Show error if there's output
+            if [[ -s "$archive_plan_file" ]]; then
+                echo "  Error output:"
+                head -3 "$archive_plan_file" | sed 's/^/    /'
+                rm -f "$archive_plan_file"
+            fi
         fi
         
         ((search_count++))
