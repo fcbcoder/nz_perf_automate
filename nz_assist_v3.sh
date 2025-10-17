@@ -832,9 +832,7 @@ use_nz_plan_for_id() {
     fi
 }
 
-#=============================================================================
-# Dynamic Plan Archive Discovery and nz_plan Enhancement
-#=============================================================================
+# Replace the discover_plan_archives function with this enhanced debugging version:
 
 discover_plan_archives() {
     local base_path="/nzscratch/monitor/log/planarchive"
@@ -842,37 +840,90 @@ discover_plan_archives() {
     
     print_section "Discovering Plan Archive Directories"
     
+    echo "Checking base path: $base_path"
+    
     if [[ ! -d "$base_path" ]]; then
         print_warning "Plan archive base directory not found: $base_path"
-        return 1
+        echo "Please verify the correct path for plan archives on your system."
+        echo "Common alternative paths:"
+        echo "  - /nz/kit/log/planarchive"
+        echo "  - /opt/nz/log/planarchive"
+        echo "  - /var/log/nz/planarchive"
+        echo ""
+        read -p "Enter alternative plan archive path (or press Enter to skip): " alt_path
+        
+        if [[ -n "$alt_path" && -d "$alt_path" ]]; then
+            base_path="$alt_path"
+            echo "Using alternative path: $base_path"
+        else
+            return 1
+        fi
     fi
+    
+    echo "Base directory exists: $base_path"
+    echo "Listing contents of base directory:"
+    ls -la "$base_path" 2>/dev/null || echo "Cannot list directory contents"
+    echo ""
+    
+    echo "Searching for numeric directories..."
     
     # Find all numeric directories and sort them in descending order
+    local found_dirs=0
     while IFS= read -r -d '' dir; do
         local dir_name=$(basename "$dir")
+        echo "Found directory: $dir_name"
         if [[ "$dir_name" =~ ^[0-9]+$ ]]; then
             available_dirs+=("$dir_name")
+            echo "  -> Added numeric directory: $dir_name"
+            ((found_dirs++))
+        else
+            echo "  -> Skipped non-numeric directory: $dir_name"
         fi
-    done < <(find "$base_path" -maxdepth 1 -type d -print0)
+    done < <(find "$base_path" -maxdepth 1 -type d -print0 2>/dev/null)
     
-    # Sort in descending order (newest first)
-    IFS=$'\n' available_dirs=($(sort -nr <<<"${available_dirs[*]}"))
-    unset IFS
+    echo ""
+    echo "Total directories found: $found_dirs"
     
-    if [[ ${#available_dirs[@]} -eq 0 ]]; then
-        print_warning "No numeric plan archive directories found in $base_path"
-        return 1
+    if [[ $found_dirs -eq 0 ]]; then
+        echo "No directories found. Checking if find command worked..."
+        echo "Manual directory check:"
+        for item in "$base_path"/*; do
+            if [[ -d "$item" ]]; then
+                local item_name=$(basename "$item")
+                echo "  Directory: $item_name"
+                if [[ "$item_name" =~ ^[0-9]+$ ]]; then
+                    available_dirs+=("$item_name")
+                    echo "    -> This is numeric, adding to list"
+                fi
+            fi
+        done
     fi
     
-    echo "Found plan archive directories (newest first):"
-    for i in "${!available_dirs[@]}"; do
-        local dir="${available_dirs[$i]}"
-        echo "  $((i+1)). $dir (${base_path}/${dir})"
-    done
-    
-    export PLAN_ARCHIVE_DIRS=("${available_dirs[@]}")
-    export PLAN_ARCHIVE_BASE="$base_path"
-    return 0
+    # Sort in descending order (newest first)
+    if [[ ${#available_dirs[@]} -gt 0 ]]; then
+        IFS=$'\n' available_dirs=($(sort -nr <<<"${available_dirs[*]}"))
+        unset IFS
+        
+        echo "Found ${#available_dirs[@]} numeric plan archive directories (newest first):"
+        for i in "${!available_dirs[@]}"; do
+            local dir="${available_dirs[$i]}"
+            echo "  $((i+1)). $dir (${base_path}/${dir})"
+        done
+        
+        export PLAN_ARCHIVE_DIRS=("${available_dirs[@]}")
+        export PLAN_ARCHIVE_BASE="$base_path"
+        return 0
+    else
+        print_warning "No numeric plan archive directories found in $base_path"
+        echo ""
+        echo "This could mean:"
+        echo "  1. Plan archiving is not configured"
+        echo "  2. No plans have been archived yet"
+        echo "  3. Different archive directory structure"
+        echo "  4. Permissions issue accessing the directory"
+        echo ""
+        return 1
+    fi
 }
 
 
@@ -906,7 +957,7 @@ use_nz_plan_for_id_enhanced() {
     fi
 }
 
-# Fix the search_plan_in_archives function to use correct nz_plan syntax:
+# Update the search_plan_in_archives function to handle the case when no archives are found:
 
 search_plan_in_archives() {
     local plan_id="$1"
@@ -915,7 +966,19 @@ search_plan_in_archives() {
     # Discover available archives if not already done
     if [[ -z "${PLAN_ARCHIVE_DIRS[*]}" ]]; then
         if ! discover_plan_archives; then
-            print_error "Failed to discover plan archives"
+            print_error "Failed to discover plan archives automatically"
+            echo ""
+            read -p "Would you like to manually specify a plan archive directory? (y/n): " manual_search
+            
+            if [[ "$manual_search" =~ ^[Yy] ]]; then
+                read -p "Enter full path to plan archive directory: " manual_path
+                if [[ -d "$manual_path" ]]; then
+                    echo "Trying manual search in: $manual_path"
+                    manual_plan_search "$plan_id" "$manual_path"
+                else
+                    print_error "Directory does not exist: $manual_path"
+                fi
+            fi
             return 1
         fi
     fi
@@ -925,6 +988,13 @@ search_plan_in_archives() {
     echo "Using nz_plan -tar to search compressed plan archives..."
     echo "Searching in ${#PLAN_ARCHIVE_DIRS[@]} archive directories (newest first)..."
     echo ""
+    
+    # If we still have 0 directories, something is wrong
+    if [[ ${#PLAN_ARCHIVE_DIRS[@]} -eq 0 ]]; then
+        print_error "No archive directories available for search"
+        echo "This indicates that plan archiving may not be set up on this system."
+        return 1
+    fi
     
     # Find nz_plan utility
     local nz_plan_path="/nz/support/contrib/bin/nz_plan"
@@ -1043,6 +1113,73 @@ search_plan_in_archives() {
     fi
     
     return 0
+}
+
+# Add manual plan search function
+manual_plan_search() {
+    local plan_id="$1"
+    local manual_path="$2"
+    
+    print_section "Manual Plan Search in: $manual_path"
+    
+    # Find nz_plan utility
+    local nz_plan_path="/nz/support/contrib/bin/nz_plan"
+    local alt_paths=(
+        "/opt/nz/support/contrib/bin/nz_plan"
+        "/usr/local/nz/support/contrib/bin/nz_plan"
+        "/nz/bin/nz_plan"
+        "/nz/kit/bin/nz_plan"
+    )
+    
+    local found_nz_plan=""
+    if [[ -f "$nz_plan_path" && -x "$nz_plan_path" ]]; then
+        found_nz_plan="$nz_plan_path"
+    else
+        for path in "${alt_paths[@]}"; do
+            if [[ -f "$path" && -x "$path" ]]; then
+                found_nz_plan="$path"
+                break
+            fi
+        done
+    fi
+    
+    if [[ -z "$found_nz_plan" ]]; then
+        print_error "nz_plan utility not found"
+        return 1
+    fi
+    
+    echo "Command: nz_plan -tar $plan_id -tardir $manual_path"
+    local manual_plan_file="/tmp/netezza_manual_plan_${plan_id}_$(date +%Y%m%d_%H%M%S).pln"
+    
+    if "$found_nz_plan" -tar "$plan_id" -tardir "$manual_path" > "$manual_plan_file" 2>&1; then
+        if [[ -s "$manual_plan_file" ]]; then
+            # Check for valid plan content
+            if grep -q "This script cannot find/access the requested.*\.pln file\|NOTICE:.*Trying to access\|ERROR\|FAILED\|not found\|No such file" "$manual_plan_file"; then
+                print_error "Plan not found in manual directory"
+                cat "$manual_plan_file"
+            else
+                local content_lines=$(grep -v "^NOTICE\|^ERROR\|^This script" "$manual_plan_file" | grep -c ".")
+                if [[ $content_lines -gt 5 ]]; then
+                    print_success "Plan found in manual directory!"
+                    echo ""
+                    echo "Plan Contents:"
+                    echo "=============================================================="
+                    cat "$manual_plan_file"
+                    echo "=============================================================="
+                    echo ""
+                    echo "Plan saved to: $manual_plan_file"
+                else
+                    print_error "Plan file contains insufficient content"
+                fi
+            fi
+        else
+            print_error "No output from nz_plan command"
+        fi
+    else
+        print_error "nz_plan command failed"
+    fi
+    
+    rm -f "$manual_plan_file"
 }
 
 # Fix the comprehensive_plan_search function to use correct nz_plan syntax:
