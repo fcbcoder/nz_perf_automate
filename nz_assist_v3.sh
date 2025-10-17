@@ -906,7 +906,7 @@ use_nz_plan_for_id_enhanced() {
     fi
 }
 
-# Update the search_plan_in_archives function to make it clear this is ONLY for archives:
+# Fix the search_plan_in_archives function to use correct nz_plan syntax:
 
 search_plan_in_archives() {
     local plan_id="$1"
@@ -922,7 +922,7 @@ search_plan_in_archives() {
     
     print_section "Searching Plan Archives for Plan ID: $plan_id"
     echo "Note: Plan not found in default location, searching archives..."
-    echo "Using nz_plan --tardir to search compressed plan archives..."
+    echo "Using nz_plan -tar to search compressed plan archives..."
     echo "Searching in ${#PLAN_ARCHIVE_DIRS[@]} archive directories (newest first)..."
     echo ""
     
@@ -964,11 +964,12 @@ search_plan_in_archives() {
         
         local archive_path="${PLAN_ARCHIVE_BASE}/${dir}"
         echo "[$((search_count+1))/${#PLAN_ARCHIVE_DIRS[@]}] Checking archive: $dir"
-        echo "  Command: nz_plan --tardir $archive_path $plan_id"
+        echo "  Command: nz_plan -tar $plan_id -tardir $archive_path"
         
         local archive_plan_file="/tmp/netezza_archive_plan_${plan_id}_${dir}_$(date +%Y%m%d_%H%M%S).pln"
         
-        if "$found_nz_plan" --tardir "$archive_path" "$plan_id" > "$archive_plan_file" 2>&1; then
+        # CORRECTED SYNTAX: nz_plan -tar <plan_id> -tardir <archive_path>
+        if "$found_nz_plan" -tar "$plan_id" -tardir "$archive_path" > "$archive_plan_file" 2>&1; then
             if [[ -s "$archive_plan_file" ]]; then
                 # Intelligent validation of archive plan content
                 local has_valid_plan=true
@@ -1001,7 +1002,7 @@ search_plan_in_archives() {
                     echo ""
                     echo "Plan saved to: $saved_plan"
                     echo "To retrieve this plan again, use:"
-                    echo "  nz_plan --tardir $archive_path $plan_id"
+                    echo "  nz_plan -tar $plan_id -tardir $archive_path"
                     rm -f "$archive_plan_file"
                     break  # Exit the loop since we found a valid plan
                 else
@@ -1009,10 +1010,10 @@ search_plan_in_archives() {
                     rm -f "$archive_plan_file"
                 fi
             else
-                echo "  ✗ No output from nz_plan --tardir"
+                echo "  ✗ No output from nz_plan -tar"
             fi
         else
-            echo "  ✗ nz_plan --tardir command failed"
+            echo "  ✗ nz_plan -tar command failed"
         fi
         
         ((search_count++))
@@ -1044,7 +1045,7 @@ search_plan_in_archives() {
     return 0
 }
 
-# Update the comprehensive_plan_search function to make it clear this is for remaining archives:
+# Fix the comprehensive_plan_search function to use correct nz_plan syntax:
 
 comprehensive_plan_search() {
     local plan_id="$1"
@@ -1067,7 +1068,8 @@ comprehensive_plan_search() {
     if [[ -f "$nz_plan_path" && -x "$nz_plan_path" ]]; then
         found_nz_plan="$nz_plan_path"
     else
-        for path in "${alt_paths[@]}"; do
+        for path in "${alt_paths[@]}"
+        do
             if [[ -f "$path" && -x "$path" ]]; then
                 found_nz_plan="$path"
                 break
@@ -1099,7 +1101,7 @@ comprehensive_plan_search() {
     fi
     
     echo "Found ${#all_archive_dirs[@]} total archive directories to search..."
-    echo "Searching ALL archives using: nz_plan --tardir <archive> $plan_id"
+    echo "Searching ALL archives using: nz_plan -tar $plan_id -tardir <archive>"
     echo ""
     
     local search_count=0
@@ -1108,10 +1110,10 @@ comprehensive_plan_search() {
         local archive_path="${PLAN_ARCHIVE_BASE}/${archive_dir}"
         echo "[$((search_count+1))/${#all_archive_dirs[@]}] Searching archive: $archive_dir"
         
-        # Try nz_plan --tardir for this archive
+        # Try nz_plan -tar for this archive - CORRECTED SYNTAX
         local temp_plan_file="/tmp/netezza_comprehensive_${plan_id}_${archive_dir}_$(date +%Y%m%d_%H%M%S).pln"
         
-        if "$found_nz_plan" --tardir "$archive_path" "$plan_id" > "$temp_plan_file" 2>&1; then
+        if "$found_nz_plan" -tar "$plan_id" -tardir "$archive_path" > "$temp_plan_file" 2>&1; then
             if [[ -s "$temp_plan_file" ]]; then
                 # Intelligent validation of the plan content
                 local has_valid_plan=true
@@ -1134,7 +1136,7 @@ comprehensive_plan_search() {
                     # Save the search results
                     echo "Archive: $archive_dir" >> "$search_results"
                     echo "Path: $archive_path" >> "$search_results"
-                    echo "Command: nz_plan --tardir $archive_path $plan_id" >> "$search_results"
+                    echo "Command: nz_plan -tar $plan_id -tardir $archive_path" >> "$search_results"
                     echo "Plan Content:" >> "$search_results"
                     cat "$temp_plan_file" >> "$search_results"
                     echo "===========================================" >> "$search_results"
@@ -1145,10 +1147,10 @@ comprehensive_plan_search() {
                 
                 rm -f "$temp_plan_file"
             else
-                echo "  ✗ No output from nz_plan --tardir for archive $archive_dir"
+                echo "  ✗ No output from nz_plan -tar for archive $archive_dir"
             fi
         else
-            echo "  ✗ nz_plan --tardir failed for archive $archive_dir"
+            echo "  ✗ nz_plan -tar failed for archive $archive_dir"
         fi
         
         ((search_count++))
@@ -1184,7 +1186,7 @@ comprehensive_plan_search() {
         
         echo ""
         echo "To retrieve this plan in the future, use:"
-        echo "  nz_plan --tardir ${PLAN_ARCHIVE_BASE}/${found_in_archives[0]} $plan_id"
+        echo "  nz_plan -tar $plan_id -tardir ${PLAN_ARCHIVE_BASE}/${found_in_archives[0]}"
         
     else
         print_warning "Plan ID $plan_id not found in any of the $search_count searched archives"
