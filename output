@@ -1,8 +1,166 @@
+--- Discovering Plan Archive Directories ---
+Checking base path: /nzscratch/monitor/log/plansarchive
+Base directory exists: /nzscratch/monitor/log/plansarchive
+Listing contents of base directory:
+total 342
+drwxrwxr-x. 8 nz nz  4096 Oct 17 11:53 .
+drwxrwxr-x. 7 nz nz  4096 Oct  2 14:19 ..
+drwxrwxr-x. 2 nz nz 16384 Sep 21 05:28 115
+drwxrwxr-x. 2 nz nz  4096 Sep 21 12:32 116
+drwxrwxr-x. 2 nz nz 16384 Sep 28 04:38 117
+drwxrwxr-x. 2 nz nz 32768 Oct  5 04:15 118
+drwxrwxr-x. 2 nz nz 32768 Oct 12 05:05 119
+drwxrwxr-x. 2 nz nz 16384 Oct 17 12:35 120
+-rw-rw-r--. 1 nz nz    11 Oct 17 12:35 .last-archive
+
+Searching for numeric directories...
+Found directory: plansarchive
+  -> Skipped non-numeric directory: plansarchive
+Found directory: 119
+  -> Added numeric directory: 119
+Found directory: 115
+  -> Added numeric directory: 115
+Found directory: 116
+  -> Added numeric directory: 116
+Found directory: 117
+  -> Added numeric directory: 117
+Found directory: 118
+  -> Added numeric directory: 118
+Found directory: 120
+  -> Added numeric directory: 120
+
+Total directories found: 6
+Found 6 numeric plan archive directories (newest first):
+  1. 120 (/nzscratch/monitor/log/plansarchive/120)
+  2. 119 (/nzscratch/monitor/log/plansarchive/119)
+  3. 118 (/nzscratch/monitor/log/plansarchive/118)
+  4. 117 (/nzscratch/monitor/log/plansarchive/117)
+  5. 116 (/nzscratch/monitor/log/plansarchive/116)
+  6. 115 (/nzscratch/monitor/log/plansarchive/115)
+
+Recent queries with Plan IDs:
+ QH_SESSIONID |    QH_USER     | QH_DATABASE |      QH_TSTART      |       QH_TEND       | ELAPSED_SECONDS | QH_PLANID |                                             SQL_PREVIEW
+
+--------------+----------------+-------------+---------------------+---------------------+-----------------+-----------+---------------------------------------------------------------------------
+---------------------------
+      6546889 | PD_MEP-SVC     | MEPPR       | 2025-10-17 12:36:30 | 2025-10-17 12:36:30 |            0.00 |   3527108 | SELECT MESSAGE_MASTER.MESSAGE_ID, MESSAGE_MASTER.START_TIME, MESSAGE_MASTE
+R.END_TIME,MESSAGE_MASTER.
+      6554795 | PD_MEP-SVC     | MEPPR       | 2025-10-17 12:36:30 | 2025-10-17 12:36:30 |            0.00 |   3527109 | SELECT PORTFOLIO_MASTER.PORTFOLIO_ID, PORTFOLIO_MASTER.PORTFOLIO_SHORTNAME
+, PORTFOLIO_MASTER.PORTFOL
+      5914248 | PD_DB_QLIK_SVC | RPLPR       | 2025-10-17 12:36:29 | 2025-10-17 12:36:29 |            0.00 |   3527106 | INSERT INTO "RPLAND"."WBS_TODOS" ("URL","ACTION_URL","DESCRIPTION","TODO_H
+ANDLER","TODO_ID","USER_ID
+      5914248 | PD_DB_QLIK_SVC | RPLPR       | 2025-10-17 12:36:28 | 2025-10-17 12:36:28 |            0.00 |   3527105 | DELETE FROM "RPLAND"."WBS_TODOS" WHERE ( "TODO_ID" ) IN ( SELECT CAST( "RP
+LAND"."attrep_changes62150
+      6564091 | PD_DB_QLIK_SVC | RPLPR       | 2025-10-17 12:36:28 | 2025-10-17 12:36:28 |            0.00 |   3527104 | insert into RPLPR."RPLAND"."attrep_changes62150EA33F91AFD8" select * from
+EXTERNAL 'D:\Programs\Attu
+      6564089 | PD_IICS-SVC    | CIDPR       | 2025-10-17 12:36:27 | 2025-10-17 12:36:28 |            1.00 |   3527102 | SELECT MAX(RUN_ID) AS RUN_ID, MAX(BATCH_ID) AS BATCH_ID FROM FIUHUB.FCB_FI
+U_DATA_LOAD_AUDIT_LOG WHER
+      6564090 | PD_IICS-SVC    | CIDPR       | 2025-10-17 12:36:28 | 2025-10-17 12:36:28 |            0.00 |   3527103 | UPDATE FIUHUB.FCB_FIU_DATA_LOAD_AUDIT_LOG SET SOURCE_SUCCESS_ROWS = 9126,
+TARGET_SUCCESS_ROWS = 9126
+      6562129 | PD_CM_CID_JOB  | STGPR       | 2025-10-17 12:36:25 | 2025-10-17 12:36:27 |            2.00 |   3527100 | INSERT INTO DSLAND.BDM_DEPOSIT_ACCOUNT(SNAPSHOT_PROCESS_DATE, SNAPSHOT_PRO
+CESS_TS, CHKSM, opening_da
+      5914248 | PD_DB_QLIK_SVC | RPLPR       | 2025-10-17 12:36:23 | 2025-10-17 12:36:26 |            3.00 |   3527096 | UPDATE "RPLAND"."WFS_FINREQ_COMM_SUBORD" SET "MATERIAL_CHANGE_DESC"= CASE
+WHEN "RPLAND"."attrep_chan
+      6562129 | PD_CM_CID_JOB  | STGPR       | 2025-10-17 12:36:21 | 2025-10-17 12:36:25 |            4.00 |   3527091 | GENERATE STATISTICS ON NZCC_TT_20251017123400630211_52101444_DSLAND_BDM_DE
+POSIT_ACCOUNT (cols.90-99)
+      6564087 | PD_IICS-SVC    | CIDPR       | 2025-10-17 12:36:24 | 2025-10-17 12:36:25 |            1.00 |   3527098 | UPDATE FIUHUB.FCB_FIU_DATA_LOAD_AUDIT_LOG SET SOURCE_SUCCESS_ROWS = 8223,
+TARGET_SUCCESS_ROWS = 8223
+      6562129 | PD_CM_CID_JOB  | STGPR       | 2025-10-17 12:36:25 | 2025-10-17 12:36:25 |            0.00 |   3527099 | GENERATE STATISTICS ON NZCC_TT_20251017123400630211_52101444_DSLAND_BDM_DE
+POSIT_ACCOUNT (cols.100-10
+      6564086 | PD_IICS-SVC    | CIDPR       | 2025-10-17 12:36:24 | 2025-10-17 12:36:24 |            0.00 |   3527097 | SELECT MAX(RUN_ID) AS RUN_ID, MAX(BATCH_ID) AS BATCH_ID FROM FIUHUB.FCB_FI
+U_DATA_LOAD_AUDIT_LOG WHER
+      5914248 | PD_DB_QLIK_SVC | RPLPR       | 2025-10-17 12:36:22 | 2025-10-17 12:36:22 |            0.00 |   3527095 | INSERT INTO "RPLAND"."WBS_TODOS" ("URL","ACTION_URL","DESCRIPTION","TODO_H
+ANDLER","TODO_ID","USER_ID
+      6564030 | CONSOLEADM     | SYSTEM      | 2025-10-17 12:36:22 | 2025-10-17 12:36:22 |            0.00 |   3527094 | select current_timestamp, (sum(USED_KB) / (1024))::DECIMAL(9,1) as used fr
+om _vt_swapspace
+      5914248 | PD_DB_QLIK_SVC | RPLPR       | 2025-10-17 12:36:21 | 2025-10-17 12:36:22 |            1.00 |   3527093 | DELETE FROM "RPLAND"."WBS_TODOS" WHERE ( "TODO_ID" ) IN ( SELECT CAST( "RP
+LAND"."attrep_changes62150
+      6549224 | PD_IICS-SVC    | CIDPR       | 2025-10-17 12:36:21 | 2025-10-17 12:36:21 |            0.00 |   3527092 | INSERT INTO FIUHUB.FCB_FIU_CAN_PARTY_EMAIL(PARTY_ID,SRC_SYS_PARTY_ID,SEQ_N
+UM,EMAIL_ADDR,EMAIL_TYPE,S
+      5914248 | PD_DB_QLIK_SVC | RPLPR       | 2025-10-17 12:36:19 | 2025-10-17 12:36:21 |            2.00 |   3527089 | UPDATE "RPLAND"."WBS_RELATIONS" SET "DESCRIPTION"= CASE WHEN "RPLAND"."att
+rep_changes62150EA33F91AFD
+      6562129 | PD_CM_CID_JOB  | STGPR       | 2025-10-17 12:36:16 | 2025-10-17 12:36:21 |            5.00 |   3527082 | GENERATE STATISTICS ON NZCC_TT_20251017123400630211_52101444_DSLAND_BDM_DE
+POSIT_ACCOUNT (cols.80-89)
+      6563975 | SPLNKSVC       | HISTDB      | 2025-10-17 12:36:19 | 2025-10-17 12:36:20 |            1.00 |   3527090 | SELECT NPSID,NPSINSTANCEID,LOGENTRYID,CLIENTIP, SESSIONUSERNAME, TIME + (
+select TZOFFSET from _VT_P
+(20 rows)
+
+
+Enter Plan ID: 1970391
+
+--- Enhanced nz_plan Analysis for Plan ID: 1970391 ---
+Step 1: Searching in default planshist location...
+Command: nz_plan 1970391
+Using nz_plan utility: /nz/support/contrib/bin/nz_plan
+Plan ID: 1970391
+
+ERROR: nz_plan failed to retrieve valid plan for Plan ID 1970391
+
+Error indicators found:
+  - Plan file not accessible
+  - Plan file access failed
+  - Suggested using nz_plan -tar option
+  - Insufficient plan content (only 2 meaningful lines)
+
+nz_plan output:
+==============================================================
+
+NOTICE:  Trying to access the *.pln file via the nz_view_plan_file script
+         If that doesn't work, try the following
+              nz_plan -tar 1970391
+
+This script cannot find/access the requested *.pln file.
+
+==============================================================
+WARNING: Plan not found in default planshist location
+
+Step 2: Searching plan archives...
+This will use nz_plan --tardir to search compressed archives...
+
+--- Discovering Plan Archive Directories ---
+Checking base path: /nzscratch/monitor/log/plansarchive
+Base directory exists: /nzscratch/monitor/log/plansarchive
+Listing contents of base directory:
+total 342
+drwxrwxr-x. 8 nz nz  4096 Oct 17 11:53 .
+drwxrwxr-x. 7 nz nz  4096 Oct  2 14:19 ..
+drwxrwxr-x. 2 nz nz 16384 Sep 21 05:28 115
+drwxrwxr-x. 2 nz nz  4096 Sep 21 12:32 116
+drwxrwxr-x. 2 nz nz 16384 Sep 28 04:38 117
+drwxrwxr-x. 2 nz nz 32768 Oct  5 04:15 118
+drwxrwxr-x. 2 nz nz 32768 Oct 12 05:05 119
+drwxrwxr-x. 2 nz nz 16384 Oct 17 12:35 120
+-rw-rw-r--. 1 nz nz    11 Oct 17 12:35 .last-archive
+
+Searching for numeric directories...
+Found directory: plansarchive
+  -> Skipped non-numeric directory: plansarchive
+Found directory: 119
+  -> Added numeric directory: 119
+Found directory: 115
+  -> Added numeric directory: 115
+Found directory: 116
+  -> Added numeric directory: 116
+Found directory: 117
+  -> Added numeric directory: 117
+Found directory: 118
+  -> Added numeric directory: 118
+Found directory: 120
+  -> Added numeric directory: 120
+
+Total directories found: 6
+Found 6 numeric plan archive directories (newest first):
+  1. 120 (/nzscratch/monitor/log/plansarchive/120)
+  2. 119 (/nzscratch/monitor/log/plansarchive/119)
+  3. 118 (/nzscratch/monitor/log/plansarchive/118)
+  4. 117 (/nzscratch/monitor/log/plansarchive/117)
+  5. 116 (/nzscratch/monitor/log/plansarchive/116)
+  6. 115 (/nzscratch/monitor/log/plansarchive/115)
+
 --- Searching Plan Archives for Plan ID: 1970391 ---
 Note: Plan not found in default location, searching archives...
 Using nz_plan -tar to search compressed plan archives...
 Searching in 0 archive directories (newest first)...
 
-WARNING: Plan ID 1970391 not found in the first 0 archive directories
-
-Searched archives:
+ERROR: No archive directories available for search
+This indicates that plan archiving may not be set up on this system.
