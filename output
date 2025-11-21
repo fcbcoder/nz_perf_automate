@@ -1,11 +1,50 @@
-select b.CLIENT_OS_USERNAME, b.SESSION_USERNAME, a.qs_sessionid, priority_name, dbname, schema, 
-substring(a.qs_sql, 1, 100), qs_tsubmit, qs_tstart, a.qs_estcost, a.qs_estmem, a.qs_estdisk, a.qs_resrows, a.qs_resbytes
-  from _v_qrystat a
-       left join _v_session_detail b
-       on b.session_id = a.qs_sessionid
-       where DBNAME != 'null'
---      and CLIENT_OS_USERNAME = 'pd_dbfraudadm-svc'
---      and DBNAME = 'STGPR'
---      and SESSION_USERNAME like '%FRAUD%'
-order by qs_estcost desc
-  ;
+This performance summary highlights my significant contributions, demonstrating the value to the organization through technical expertise, process improvements, and commitment to professional development.
+Technical Expertise and Automation
+Throughout the year, I demonstrated significant technical expertise by developing and implementing critical automation solutions that substantially improved organizational efficiency. 
+
+My key accomplishments include:
+- Successfully automated SQL translations and data mapping processes across multiple database sources (SQL Server, Oracle to Netezza), which dramatically reduced manual conversion efforts
+- Onboarded thousands of tables into the Landing Zone, streamlining data integration and accessibility
+- Developed comprehensive documentation for source/schema onboarding processes, establishing clear and repeatable methodologies for team knowledge transfer
+
+Compliance and Training Management
+Demonstrated strong commitment to organizational compliance and professional development:
+- Ensured 100% completion of FCB (Fully Compliant Baseline) complaint and onboarding trainings within specified timelines
+- Completed knowledge transition for the Landing Zone, facilitating smooth information transfer and operational continuity
+- Proactively pursued professional development through strategic certifications in AWS and Snowflake, enhancing technical capabilities and staying current with industry technologies
+
+Documentation and Process Improvement
+- Spearheaded the documentation efforts for Landing Zone onboarding processes
+- Led the initiative to integrate LANDSTG into the Enterprise Netezza Landing Zone database, showcasing leadership and process optimization skills
+
+Risk Mitigation and Technology Management
+- Implemented robust data translation automation to minimize human error in database migrations
+- Developed systematic approaches to source integration, reducing potential data inconsistencies and technical risks
+- Ensured compliance with organizational standards through meticulous training and certification processes
+
+Individual Contributions and Professional Growth
+- Demonstrated initiative by independently driving automation projects
+- Expanded technical skill set through targeted certifications in cloud technologies (AWS, Snowflake)
+- Contributed to knowledge sharing and team efficiency through comprehensive documentation and process standardization
+
+Professional Development Objectives
+- Continuously enhanced technical capabilities through targeted learning and certification
+- Maintained a proactive approach to understanding emerging technologies and their potential applications
+- Developed cross-functional skills that support broader organizational technological objectives
+
+Impact and Value Creation
+- Reduced manual effort in data conversion processes
+- Enhanced data integration capabilities
+- Supported scalable and efficient data management strategies
+
+Areas of Excellence
+- Automation Implementation
+- Compliance Management
+- Technical Documentation
+- Continuous Learning
+- Process Optimization
+
+Continued commitment for Future Growth
+- Continue exploring advanced automation technologies
+- Pursue deeper expertise in cloud migration and data integration strategies
+- Develop leadership skills to potentially transition into more strategic technical role
