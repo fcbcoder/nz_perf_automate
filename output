@@ -1,99 +1,36 @@
-Annual Performance Review
-Executive Summary
-This performance year has been marked by exceptional technical contributions, strategic automation initiatives, and significant professional development. Building upon last year's foundation in automation and process improvement, I have delivered measurable value through advanced solutions, expanded responsibilities, and demonstrated leadership in critical operational areas.
+Job Description
+Overview
 
-Key Accomplishments and Impact
-1. Advanced Automation and Technical Solutions
+This is a hybrid role with the expectation that time working will regularly take place inside and outside of a company office in either Raleigh, NC or Phoenix, AZ.
 
-Proactive Problem Resolution: Developed comprehensive automation solutions that identify, diagnose, and fix recurring issues in mission-critical applications, significantly reducing downtime and manual intervention requirements
-DDL Deployment Automation: Created automated packaging and deployment processes for DDL changes, ensuring consistency, reducing errors, and accelerating deployment cycles for mission-critical applications
-Netezza Performance Assistance Tool: Engineered a real-time monitoring and diagnostic solution for day-to-day Netezza administration that provides:
+ 
 
-Real-time insights into potential performance issues
-Analysis of both active and historical session data
-Proactive identification of bottlenecks before they impact operations
+This position establishes and implements the overall technological direction of the Bank. Provides long-term strategic vision while directing immediate technical architecture initiatives. Ensures the overall quality of technology implementations across multiple domains including data, application, and infrastructure. Supports multiple business units, managers, and associate teams through expert consultation. Leads the design and integration of key systems that require a fundamental change to corporate technological strategy and direction.
 
 
-Enhanced Administrative Capabilities: Continuously improved the performance assistance tool by integrating session management and role management features, expanding its utility and value to the DBA team
-On-Call Automation: Developed automated DBA on-call check processes that deliver more accurate, consistent, and comprehensive results compared to manual verification methods, improving incident response quality
+Responsibilities
 
-2. Professional Development and Certification Excellence
-Demonstrated exceptional commitment to maintaining cutting-edge expertise:
+Business Strategy - Drives long-term technological architecture vision and strategy to support business needs. Designs and integrates key systems that change overall corporate technology strategy and direction. Facilitates the development and evolution of architecture and enterprise governance processes.
+Consultation - Provides direction for the Bank's annual investment in all technology areas, including data, applications, and infrastructure. Offers guidance to application development teams within the department.
+Collaboration - Communicates a clear vision for management and senior technical staff to ensure maximum leverage of both purchased and developed technology. Collaborates effectively to solve complex technical problems and create new strategies
+Technical Expertise - Maintains strong current knowledge of key advances, technology, industry trends, and systems development techniques. Utilizes expertise to partner on the design of technology solutions, planning technology migrations, vendor or product selection, and solution integration.
 
-Snowflake Recertifications: Successfully renewed both SnowPro Core and Solutions Architect certifications, ensuring current knowledge of platform updates
-Advanced Certification: Achieved the Advanced Data Engineer certification, representing mastery of complex data engineering concepts and best practices
-Strategic Value: These certifications directly support organizational cloud migration initiatives and position the team for success with modern data platforms
+Qualifications
 
-3. Leadership and Operational Excellence
+Bachelor's Degree and 10 years of experience in Application Development, Systems Engineering, or Information Technology management OR High School Diploma or GED and 14 years of experience in Application Development, Systems Engineering, or Information Technology management
 
-On-Call Responsibility: Voluntarily assumed full responsibility for ongoing on-call duties, demonstrating reliability and commitment to operational continuity
-Performance Issue Resolution: Proactively stepped forward to address complex performance issues, applying technical expertise to resolve critical situations
-Team Support: Provided reliable coverage and technical leadership during high-pressure situations
+ 
 
+Preferred Skills:
 
-Organizational Impact and Value Creation
-Efficiency Gains
+Minimum 3-5 years experience with at least one major programming language (e.g. Java, Python, Go, etc.,) 
+Minimum 3-5 years working with agile teams 
+Prior experience working with program and project delivery teams 
+3-5 years of Domain Driven Design experience 
+Demonstrated ability with making architectural decisions that stick 
+Architecture certifications in AWS or Azure 
+Experience with developing microservices  
+Experience with managing containerized workloads 
+ 
 
-Automation solutions have eliminated hundreds of hours of manual work annually
-Reduced mean time to resolution (MTTR) for common issues through automated identification and remediation
-Improved deployment reliability and speed for mission-critical applications
-
-Risk Mitigation
-
-Automated checks provide more consistent and comprehensive coverage than manual processes
-Real-time monitoring capabilities enable proactive issue resolution before customer impact
-Standardized deployment processes reduce human error in critical operations
-
-Knowledge and Capability Enhancement
-
-Advanced certifications bring cutting-edge cloud data platform expertise to the organization
-Automation tools create institutional knowledge and repeatable processes
-Documentation and training support team scalability and knowledge transfer
-
-Operational Resilience
-
-Reliable on-call coverage ensures 24/7 operational support
-Performance assistance tools enable faster diagnosis and resolution
-Automated monitoring reduces dependency on manual checks during off-hours
-
-
-Areas of Excellence
-
-Innovation in Automation: Consistently identifying opportunities to automate manual processes and implementing practical, effective solutions
-Technical Depth: Maintaining and expanding expertise across multiple platforms (Netezza, Snowflake, automation frameworks)
-Ownership and Accountability: Taking full responsibility for critical operational duties and delivering consistently
-Continuous Improvement: Iteratively enhancing solutions based on operational needs and feedback
-Professional Growth: Proactively pursuing challenging certifications that align with organizational strategic direction
-
-
-Year-over-Year Growth
-Building on last year's accomplishments in SQL translation automation and Landing Zone onboarding, this year demonstrates:
-
-Expanded scope: Moving from data integration automation to operational automation
-Increased complexity: Tackling real-time monitoring and performance optimization challenges
-Greater responsibility: Assuming primary on-call duties and performance issue resolution
-Deeper expertise: Achieving advanced-level certifications in strategic cloud platforms
-
-
-Future Development Objectives
-Technical Leadership
-
-Continue expanding automation portfolio to cover additional operational areas
-Develop mentorship capabilities to transfer automation knowledge to team members
-Explore machine learning applications for predictive performance monitoring
-
-Strategic Contributions
-
-Align automation initiatives with broader organizational cloud migration strategy
-Contribute to architecture decisions for next-generation data platforms
-Develop comprehensive monitoring and observability framework across all data platforms
-
-Professional Growth
-
-Pursue additional advanced certifications in cloud platforms and data engineering
-Develop presentation and communication skills to share successes with broader audiences
-Explore opportunities for cross-functional collaboration and influence
-
-
-Closing Statement
-This performance year reflects exceptional technical execution, strategic thinking, and organizational commitment. The automation solutions delivered provide lasting value that will benefit operations for years to come, while the professional development investments position both myself and the organization for success in evolving cloud-based data platforms. The voluntary assumption of critical operational responsibilities demonstrates maturity and leadership that exceeds expectations for the role.
+Benefits are an integral part of total rewards and First Citizens Bank is committed to providing a competitive, thoughtfully designed and quality benefits program to meet the needs of our associates. More information can be found at https://jobs.firstcitizens.com/benefits.
