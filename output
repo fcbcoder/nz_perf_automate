@@ -1,36 +1,19 @@
-Job Description
-Overview
+export sdb=CIDPR
+export tdb=CIDUT
+export shost=nps-pr
+export thost=nps-ut
+export sschema=FCBAPP
+export tschema=FCBAPP
+export SourceWhereClause="CM_date_key IN ('27801','27771','27740')"
+export tables='
+FACT_ACCOUNT_PROFITABILITY
+FACT_CUSTOMER_PROFITABILITY
+FACT_RMU_PROFITABILITY
+FACT_ACCOUNT_CUSTOMER_RMU_PROFITABILITY
+'
+for table in $tables ; do
+nzsql $tdb -host $thost -c "drop table $tschema.$table"
 
-This is a hybrid role with the expectation that time working will regularly take place inside and outside of a company office in either Raleigh, NC or Phoenix, AZ.
+nohup nz_migrate -sTable $table -tTable $table_20251208_BKP -u admin -shost $shost -thost $thost -sdb $sdb -tdb $tdb -spassword $spassword -tpassword $tpassword -schema $sschema -tschema $tschema -format binary -CreateTargetTable yes  -threads 4 -cksum Yes -genStats FULL 2>&1 | tee /export/home/nz/bwv78/copy-$tbl.log &
+done
 
- 
-
-This position establishes and implements the overall technological direction of the Bank. Provides long-term strategic vision while directing immediate technical architecture initiatives. Ensures the overall quality of technology implementations across multiple domains including data, application, and infrastructure. Supports multiple business units, managers, and associate teams through expert consultation. Leads the design and integration of key systems that require a fundamental change to corporate technological strategy and direction.
-
-
-Responsibilities
-
-Business Strategy - Drives long-term technological architecture vision and strategy to support business needs. Designs and integrates key systems that change overall corporate technology strategy and direction. Facilitates the development and evolution of architecture and enterprise governance processes.
-Consultation - Provides direction for the Bank's annual investment in all technology areas, including data, applications, and infrastructure. Offers guidance to application development teams within the department.
-Collaboration - Communicates a clear vision for management and senior technical staff to ensure maximum leverage of both purchased and developed technology. Collaborates effectively to solve complex technical problems and create new strategies
-Technical Expertise - Maintains strong current knowledge of key advances, technology, industry trends, and systems development techniques. Utilizes expertise to partner on the design of technology solutions, planning technology migrations, vendor or product selection, and solution integration.
-
-Qualifications
-
-Bachelor's Degree and 10 years of experience in Application Development, Systems Engineering, or Information Technology management OR High School Diploma or GED and 14 years of experience in Application Development, Systems Engineering, or Information Technology management
-
- 
-
-Preferred Skills:
-
-Minimum 3-5 years experience with at least one major programming language (e.g. Java, Python, Go, etc.,) 
-Minimum 3-5 years working with agile teams 
-Prior experience working with program and project delivery teams 
-3-5 years of Domain Driven Design experience 
-Demonstrated ability with making architectural decisions that stick 
-Architecture certifications in AWS or Azure 
-Experience with developing microservices  
-Experience with managing containerized workloads 
- 
-
-Benefits are an integral part of total rewards and First Citizens Bank is committed to providing a competitive, thoughtfully designed and quality benefits program to meet the needs of our associates. More information can be found at https://jobs.firstcitizens.com/benefits.
