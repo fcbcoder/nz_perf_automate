@@ -1,19 +1,14 @@
-export sdb=CIDPR
-export tdb=CIDUT
-export shost=nps-pr
-export thost=nps-ut
-export sschema=FCBAPP
-export tschema=FCBAPP
-export SourceWhereClause="CM_date_key IN ('27801','27771','27740')"
-export tables='
-FACT_ACCOUNT_PROFITABILITY
-FACT_CUSTOMER_PROFITABILITY
-FACT_RMU_PROFITABILITY
-FACT_ACCOUNT_CUSTOMER_RMU_PROFITABILITY
-'
-for table in $tables ; do
-nzsql $tdb -host $thost -c "drop table $tschema.$table"
+Dropping a DB User with DB Objects
 
-nohup nz_migrate -sTable $table -tTable $table_20251208_BKP -u admin -shost $shost -thost $thost -sdb $sdb -tdb $tdb -spassword $spassword -tpassword $tpassword -schema $sschema -tschema $tschema -format binary -CreateTargetTable yes  -threads 4 -cksum Yes -genStats FULL 2>&1 | tee /export/home/nz/bwv78/copy-$tbl.log &
-done
+Dropping a DB user:
 
+In the event the NZA_tls_user_maint.sh script fails to drop a user due to objects owned by the user. The DBA team will change the ownership of these objects to the FCBORPHAN user. Then the user will be dropped with the next execute of the script.
+
+/nz/support/bin/nz_change_owner -from <USERTODEL> -to FCBORPHAN >> /export/home/nz/DBA_Scripts/logs/changeowner <USERTODEL>.sql
+
+Example : /nz/support/bin/nz_change_owner -from AB4A -to FCBORPHAN >> /export/home/nz/DBA_Scripts/logs/changeownerAB4A.sql
+
+
+nzsql -f /export/home/nz/DBA_Scripts/logs/ changeowner <USERTODEL>.sql -o /export/home/nz/DBA_Scripts/logs/ changeowner <USERTODEL>.out
+
+Example: nzsql -f /export/home/nz/DBA_Scripts/logs/changeownerAB4A.sql -o /export/home/nz/DBA_Scripts/logs/changeownerAB4A.out
