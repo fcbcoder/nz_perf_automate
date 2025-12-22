@@ -4307,52 +4307,103 @@ execute_ownership_transfer_sql() {
     
     print_section "Executing SQL-based Ownership Transfer (Fallback)"
     
-    echo "Transferring table ownership..."
+    echo "This method will generate SQL statements for all objects across all databases"
+    echo ""
     
-    # Get list of tables and transfer ownership
-    local tables=$($NZSQL_CMD -t -c "
-    SELECT DATABASE || '.' || TABLENAME 
-    FROM _V_TABLE 
-    WHERE UPPER(OWNER) = UPPER('${from_user}');" 2>/dev/null)
+    # Create logs directory
+    local log_dir="/export/home/nz/DBA_Scripts/logs"
+    if [[ ! -d "$log_dir" ]]; then
+        log_dir="/tmp/netezza_ownership_logs"
+        print_warning "Standard log directory not found, using: $log_dir"
+    fi
+    mkdir -p "$log_dir"
     
-    while IFS= read -r table; do
-        if [[ -n "$table" ]]; then
-            table=$(echo "$table" | tr -d ' ')
-            execute_sql "ALTER TABLE ${table} OWNER TO ${to_user};" "Transfer ownership of ${table}"
+    local timestamp=$(date +%Y%m%d_%H%M%S)
+    local sql_file="${log_dir}/changeowner_${from_user}_${timestamp}.sql"
+    local output_file="${log_dir}/changeowner_${from_user}_${timestamp}.out"
+    
+    echo "Generating SQL script from system views..."
+    echo "SQL file: $sql_file"
+    echo ""
+    
+    # Generate ALTER statements for all object types across all databases
+    $NZSQL_CMD -t -c "
+    SELECT 
+        CASE 
+            WHEN OBJTYPE = 'TABLE' THEN 'ALTER TABLE ' || DATABASE || '.' || SCHEMA || '.' || OBJNAME || ' OWNER TO ${to_user};'
+            WHEN OBJTYPE = 'VIEW' THEN 'ALTER VIEW ' || DATABASE || '.' || SCHEMA || '.' || OBJNAME || ' OWNER TO ${to_user};'
+            WHEN OBJTYPE = 'SEQUENCE' THEN 'ALTER SEQUENCE ' || DATABASE || '.' || SCHEMA || '.' || OBJNAME || ' OWNER TO ${to_user};'
+            ELSE '-- Unknown object type: ' || OBJTYPE || ' ' || DATABASE || '.' || SCHEMA || '.' || OBJNAME
+        END AS alter_statement
+    FROM _V_OBJ_RELATION_XDB
+    WHERE UPPER(OWNER) = UPPER('${from_user}')
+    ORDER BY DATABASE, OBJTYPE, OBJNAME;
+    " > "$sql_file" 2>&1
+    
+    local exit_code=$?
+    
+    if [[ $exit_code -ne 0 ]]; then
+        print_error "Failed to generate SQL script from system views"
+        if [[ -f "$sql_file" ]]; then
+            cat "$sql_file"
         fi
-    done <<< "$tables"
+        return 1
+    fi
     
-    echo "Transferring view ownership..."
+    # Check if SQL file was generated and has content
+    if [[ ! -s "$sql_file" ]]; then
+        print_error "Generated SQL file is empty - no objects found or query failed"
+        return 1
+    fi
     
-    # Get list of views and transfer ownership
-    local views=$($NZSQL_CMD -t -c "
-    SELECT DATABASE || '.' || VIEWNAME 
-    FROM _V_VIEW 
-    WHERE UPPER(OWNER) = UPPER('${from_user}');" 2>/dev/null)
+    print_success "SQL script generated successfully"
+    echo ""
+    echo "Preview of generated SQL (first 20 lines):"
+    head -20 "$sql_file"
+    echo ""
     
-    while IFS= read -r view; do
-        if [[ -n "$view" ]]; then
-            view=$(echo "$view" | tr -d ' ')
-            execute_sql "ALTER VIEW ${view} OWNER TO ${to_user};" "Transfer ownership of ${view}"
+    read -p "Execute this SQL script to transfer ownership? (y/n): " execute_confirm
+    
+    if [[ ! "$execute_confirm" =~ ^[Yy]$ ]]; then
+        print_warning "Ownership transfer cancelled. SQL script saved at: $sql_file"
+        return 0
+    fi
+    
+    # Execute the SQL script
+    echo "Executing ownership transfer..."
+    echo "Command: nzsql -f ${sql_file} -o ${output_file}"
+    echo ""
+    
+    $NZSQL_CMD -f "$sql_file" -o "$output_file"
+    exit_code=$?
+    
+    if [[ $exit_code -eq 0 ]]; then
+        print_success "Ownership transfer completed successfully"
+        echo "Output saved to: $output_file"
+        
+        # Verify the transfer
+        echo ""
+        echo "Verifying ownership transfer..."
+        local remaining_objects=$($NZSQL_CMD -t -c "
+        SELECT COUNT(*) 
+        FROM _V_OBJ_RELATION_XDB 
+        WHERE UPPER(OWNER) = UPPER('${from_user}');" 2>/dev/null | tr -d ' ')
+        
+        if [[ "$remaining_objects" == "0" ]]; then
+            print_success "All objects successfully transferred from ${from_user} to ${to_user}"
+        else
+            print_warning "${remaining_objects} objects still owned by ${from_user}"
+            echo "Check output file for details: $output_file"
         fi
-    done <<< "$views"
-    
-    echo "Transferring sequence ownership..."
-    
-    # Get list of sequences and transfer ownership
-    local sequences=$($NZSQL_CMD -t -c "
-    SELECT DATABASE || '.' || SEQNAME 
-    FROM _V_SEQUENCE 
-    WHERE UPPER(OWNER) = UPPER('${from_user}');" 2>/dev/null)
-    
-    while IFS= read -r seq; do
-        if [[ -n "$seq" ]]; then
-            seq=$(echo "$seq" | tr -d ' ')
-            execute_sql "ALTER SEQUENCE ${seq} OWNER TO ${to_user};" "Transfer ownership of ${seq}"
+    else
+        print_error "Ownership transfer failed. Check output file: $output_file"
+        if [[ -f "$output_file" ]]; then
+            cat "$output_file"
         fi
-    done <<< "$sequences"
+        return 1
+    fi
     
-    print_success "SQL-based ownership transfer completed"
+    return 0
 }
 
 
