@@ -1,30 +1,96 @@
+./diagnose_views.sh
+================================================================================================
+NETEZZA SYSTEM VIEWS DIAGNOSTIC
+Testing which views are available for object ownership detection
 ================================================================================================
 
-This section provides safe user management capabilities including:
-- Transferring object ownership before dropping users
-- Using nz_change_owner utility for bulk ownership transfer
-- Dry-run mode to preview changes
-- Safety checks and validation
+Using connection: nzsql -d SYSTEM -u ADMIN
 
-User Management Options:
-1. Drop user with automatic ownership transfer
-2. View user's owned objects
-3. Transfer ownership only (no user drop)
-4. List all database users
-5. Check user permissions and grants
-6. Return to main menu
+Testing with user: USG75
 
-Choose user management option (1-6): 3
+--- Test 1: _V_RELATION_TABLE view ---
+Query: SELECT COUNT(*) FROM _V_RELATION_TABLE WHERE OWNER = 'USG75';
 
---- Transfer Object Ownership ---
-Enter source username (FROM): USG75
-Enter target username (TO): FCBORPHAN
+✗ View does not exist or query failed
+  Error: ERROR:  relation does not exist SYSTEM.ADMIN._V_RELATION_TABLE
 
-Objects that will be transferred from USG75 to FCBORPHAN:
-  - Tables:  (across all databases)
-  - Views:  (across all databases)
-  - Sequences:  (across all databases)
-  - Total: 0
+--- Test 2: _V_RELATION_VIEW view ---
+Query: SELECT COUNT(*) FROM _V_RELATION_VIEW WHERE OWNER = 'USG75';
 
-Continue with ownership transfer? (y/n): y
+✗ View does not exist or query failed
+  Error: ERROR:  relation does not exist SYSTEM.ADMIN._V_RELATION_VIEW
 
+--- Test 3: _V_RELATION_SEQUENCE view ---
+Query: SELECT COUNT(*) FROM _V_RELATION_SEQUENCE WHERE OWNER = 'USG75';
+
+✗ View does not exist or query failed
+  Error: ERROR:  relation does not exist SYSTEM.ADMIN._V_RELATION_SEQUENCE
+
+--- Test 4: _V_TABLE view (fallback) ---
+Query: SELECT COUNT(*) FROM _V_TABLE WHERE OWNER = 'USG75';
+
+✓ View exists and query succeeded
+  Result: '     0'
+  Trimmed: '0'
+
+--- Test 5: List all available system views with 'RELATION' in name ---
+
+          VIEWNAME          | DATABASE
+----------------------------+----------
+ _V_OBJ_RELATION            | SYSTEM
+ _V_OBJ_RELATION_XDB        | SYSTEM
+ _V_RELATION_COLUMN         | SYSTEM
+ _V_RELATION_COLUMN_DEF     | SYSTEM
+ _V_RELATION_COLUMN_DEF_XDB | SYSTEM
+ _V_RELATION_COLUMN_XDB     | SYSTEM
+ _V_RELATION_KEYDATA        | SYSTEM
+ _V_RELATION_KEYDATA_XDB    | SYSTEM
+ _V_SYS_RELATION            | SYSTEM
+ _V_SYS_RELATION_XDB        | SYSTEM
+(10 rows)
+
+
+--- Test 6: Query system catalog for objects ---
+Query: SELECT COUNT(*) FROM _T_OBJECT WHERE OWNER = 'USG75';
+
+✗ System catalog query failed
+  Error: ERROR:  Attribute 'OWNER' not found
+
+--- Test 7: Test alternative view names ---
+
+Testing: _V_OBJ_RELATION_XDB
+  ✓ View exists: _V_OBJ_RELATION_XDB
+    Objects for USG75: 3
+
+Testing: _V_TABLE_XDB
+  ✓ View exists: _V_TABLE_XDB
+    Objects for USG75: 3
+
+Testing: _V_RELATION
+  ✗ View does not exist: _V_RELATION
+
+--- Test 8: Show sample data from _V_RELATION_TABLE (if exists) ---
+
+ERROR:  relation does not exist SYSTEM.ADMIN._V_RELATION_TABLE
+
+--- Test 9: Verify database connection ---
+
+ERROR:  Attribute 'CURRENT_DATABASE' not found
+
+================================================================================================
+DIAGNOSTIC SUMMARY
+================================================================================================
+
+Review the results above to determine:
+
+1. Which views exist on your Netezza system
+2. Whether _V_RELATION_* views are available
+3. If views return NULL or actual counts
+4. What alternative views can be used
+
+If _V_RELATION_* views don't exist, the script needs to be updated to use:
+  - _V_TABLE, _V_VIEW, _V_SEQUENCE (single database)
+  - OR query each database separately
+  - OR use _T_OBJECT system catalog directly
+
+================================================================================================
