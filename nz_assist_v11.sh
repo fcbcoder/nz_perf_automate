@@ -3770,49 +3770,52 @@ view_user_owned_objects() {
         return 1
     fi
     
-    # Tables owned by user
+    # Tables owned by user - SEARCH ACROSS ALL DATABASES
     echo ""
-    echo -e "${CYAN}Tables owned by ${username}:${NC}"
+    echo -e "${CYAN}Tables owned by ${username} (across all databases):${NC}"
     execute_sql "
     SELECT 
-        TABLENAME,
-        DATABASE,
-        OBJTYPE,
-        CREATEDATE
-    FROM _V_TABLE
-    WHERE UPPER(OWNER) = UPPER('${username}')
-    ORDER BY DATABASE, TABLENAME;" "Tables owned by ${username}"
+        t.TABLENAME,
+        t.DATABASE,
+        t.OBJTYPE,
+        t.CREATEDATE,
+        t.SCHEMA
+    FROM _V_RELATION_TABLE t
+    WHERE UPPER(t.OWNER) = UPPER('${username}')
+    ORDER BY t.DATABASE, t.SCHEMA, t.TABLENAME;" "Tables owned by ${username}"
     
-    # Views owned by user
+    # Views owned by user - SEARCH ACROSS ALL DATABASES
     echo ""
-    echo -e "${CYAN}Views owned by ${username}:${NC}"
+    echo -e "${CYAN}Views owned by ${username} (across all databases):${NC}"
     execute_sql "
     SELECT 
-        VIEWNAME,
-        DATABASE,
-        CREATEDATE
-    FROM _V_VIEW
-    WHERE UPPER(OWNER) = UPPER('${username}')
-    ORDER BY DATABASE, VIEWNAME;" "Views owned by ${username}"
+        v.VIEWNAME,
+        v.DATABASE,
+        v.CREATEDATE,
+        v.SCHEMA
+    FROM _V_RELATION_VIEW v
+    WHERE UPPER(v.OWNER) = UPPER('${username}')
+    ORDER BY v.DATABASE, v.SCHEMA, v.VIEWNAME;" "Views owned by ${username}"
     
-    # Sequences owned by user
+    # Sequences owned by user - SEARCH ACROSS ALL DATABASES
     echo ""
-    echo -e "${CYAN}Sequences owned by ${username}:${NC}"
+    echo -e "${CYAN}Sequences owned by ${username} (across all databases):${NC}"
     execute_sql "
     SELECT 
-        SEQNAME,
-        DATABASE,
-        CREATEDATE
-    FROM _V_SEQUENCE
-    WHERE UPPER(OWNER) = UPPER('${username}')
-    ORDER BY DATABASE, SEQNAME;" "Sequences owned by ${username}"
+        s.SEQNAME,
+        s.DATABASE,
+        s.CREATEDATE,
+        s.SCHEMA
+    FROM _V_RELATION_SEQUENCE s
+    WHERE UPPER(s.OWNER) = UPPER('${username}')
+    ORDER BY s.DATABASE, s.SCHEMA, s.SEQNAME;" "Sequences owned by ${username}"
     
-    # Get total count
+    # Get total count - ACROSS ALL DATABASES
     local total_objects=$($NZSQL_CMD -t -c "
     SELECT 
-        (SELECT COUNT(*) FROM _V_TABLE WHERE UPPER(OWNER) = UPPER('${username}')) +
-        (SELECT COUNT(*) FROM _V_VIEW WHERE UPPER(OWNER) = UPPER('${username}')) +
-        (SELECT COUNT(*) FROM _V_SEQUENCE WHERE UPPER(OWNER) = UPPER('${username}'))
+        (SELECT COUNT(*) FROM _V_RELATION_TABLE WHERE UPPER(OWNER) = UPPER('${username}')) +
+        (SELECT COUNT(*) FROM _V_RELATION_VIEW WHERE UPPER(OWNER) = UPPER('${username}')) +
+        (SELECT COUNT(*) FROM _V_RELATION_SEQUENCE WHERE UPPER(OWNER) = UPPER('${username}'))
     AS TOTAL_OBJECTS;" 2>/dev/null | tr -d ' ')
     
     echo ""
@@ -4049,18 +4052,18 @@ drop_user_with_ownership_transfer() {
         fi
     done
     
-    # Check if user owns any objects
+    # Check if user owns any objects - ACROSS ALL DATABASES
     local owned_objects=$($NZSQL_CMD -t -c "
     SELECT 
-        (SELECT COUNT(*) FROM _V_TABLE WHERE UPPER(OWNER) = UPPER('${username}')) +
-        (SELECT COUNT(*) FROM _V_VIEW WHERE UPPER(OWNER) = UPPER('${username}')) +
-        (SELECT COUNT(*) FROM _V_SEQUENCE WHERE UPPER(OWNER) = UPPER('${username}'))
+        (SELECT COUNT(*) FROM _V_RELATION_TABLE WHERE UPPER(OWNER) = UPPER('${username}')) +
+        (SELECT COUNT(*) FROM _V_RELATION_VIEW WHERE UPPER(OWNER) = UPPER('${username}')) +
+        (SELECT COUNT(*) FROM _V_RELATION_SEQUENCE WHERE UPPER(OWNER) = UPPER('${username}'))
     AS TOTAL_OBJECTS;" 2>/dev/null | tr -d ' ')
     
     echo ""
     echo -e "${CYAN}User Information:${NC}"
     echo "Username: $username"
-    echo "Owned Objects: $owned_objects"
+    echo "Owned Objects: $owned_objects (across all databases)"
     
     if [[ "$owned_objects" -gt 0 ]]; then
         echo ""
@@ -4117,16 +4120,16 @@ drop_user_with_ownership_transfer() {
             return 1
         fi
         
-        # Verify all objects transferred
+        # Verify all objects transferred - ACROSS ALL DATABASES
         owned_objects=$($NZSQL_CMD -t -c "
         SELECT 
-            (SELECT COUNT(*) FROM _V_TABLE WHERE UPPER(OWNER) = UPPER('${username}')) +
-            (SELECT COUNT(*) FROM _V_VIEW WHERE UPPER(OWNER) = UPPER('${username}')) +
-            (SELECT COUNT(*) FROM _V_SEQUENCE WHERE UPPER(OWNER) = UPPER('${username}'))
+            (SELECT COUNT(*) FROM _V_RELATION_TABLE WHERE UPPER(OWNER) = UPPER('${username}')) +
+            (SELECT COUNT(*) FROM _V_RELATION_VIEW WHERE UPPER(OWNER) = UPPER('${username}')) +
+            (SELECT COUNT(*) FROM _V_RELATION_SEQUENCE WHERE UPPER(OWNER) = UPPER('${username}'))
         AS TOTAL_OBJECTS;" 2>/dev/null | tr -d ' ')
         
         if [[ "$owned_objects" -gt 0 ]]; then
-            print_error "User still owns $owned_objects object(s). Cannot drop user."
+            print_error "User still owns $owned_objects object(s) across databases. Cannot drop user."
             return 1
         fi
     fi
@@ -4155,18 +4158,19 @@ drop_user_with_ownership_transfer() {
 view_user_owned_objects_count() {
     local username="$1"
     
+    # Use _V_RELATION_* views to search across ALL databases
     local table_count=$($NZSQL_CMD -t -c "
-    SELECT COUNT(*) FROM _V_TABLE WHERE UPPER(OWNER) = UPPER('${username}');" 2>/dev/null | tr -d ' ')
+    SELECT COUNT(*) FROM _V_RELATION_TABLE WHERE UPPER(OWNER) = UPPER('${username}');" 2>/dev/null | tr -d ' ')
     
     local view_count=$($NZSQL_CMD -t -c "
-    SELECT COUNT(*) FROM _V_VIEW WHERE UPPER(OWNER) = UPPER('${username}');" 2>/dev/null | tr -d ' ')
+    SELECT COUNT(*) FROM _V_RELATION_VIEW WHERE UPPER(OWNER) = UPPER('${username}');" 2>/dev/null | tr -d ' ')
     
     local seq_count=$($NZSQL_CMD -t -c "
-    SELECT COUNT(*) FROM _V_SEQUENCE WHERE UPPER(OWNER) = UPPER('${username}');" 2>/dev/null | tr -d ' ')
+    SELECT COUNT(*) FROM _V_RELATION_SEQUENCE WHERE UPPER(OWNER) = UPPER('${username}');" 2>/dev/null | tr -d ' ')
     
-    echo "  - Tables: $table_count"
-    echo "  - Views: $view_count"
-    echo "  - Sequences: $seq_count"
+    echo "  - Tables: $table_count (across all databases)"
+    echo "  - Views: $view_count (across all databases)"
+    echo "  - Sequences: $seq_count (across all databases)"
     echo "  - Total: $((table_count + view_count + seq_count))"
 }
 
@@ -4184,11 +4188,11 @@ list_all_database_users() {
         u.VALIDUNTIL,
         u.USESUPER AS IS_SUPERUSER,
         u.USECREATEDB AS CAN_CREATE_DB,
-        (SELECT COUNT(*) FROM _V_TABLE t WHERE t.OWNER = u.NAME) AS TABLES_OWNED,
-        (SELECT COUNT(*) FROM _V_VIEW v WHERE v.OWNER = u.NAME) AS VIEWS_OWNED,
-        (SELECT COUNT(*) FROM _V_SEQUENCE s WHERE s.OWNER = u.NAME) AS SEQS_OWNED
+        (SELECT COUNT(*) FROM _V_RELATION_TABLE t WHERE t.OWNER = u.NAME) AS TABLES_OWNED,
+        (SELECT COUNT(*) FROM _V_RELATION_VIEW v WHERE v.OWNER = u.NAME) AS VIEWS_OWNED,
+        (SELECT COUNT(*) FROM _V_RELATION_SEQUENCE s WHERE s.OWNER = u.NAME) AS SEQS_OWNED
     FROM _V_USER u
-    ORDER BY u.NAME;" "All Database Users with Object Counts"
+    ORDER BY u.NAME;" "All Database Users with Object Counts (Across All Databases)"
 }
 
 #=============================================================================
