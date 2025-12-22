@@ -3775,53 +3775,55 @@ view_user_owned_objects() {
     echo -e "${CYAN}Tables owned by ${username} (across all databases):${NC}"
     execute_sql "
     SELECT 
-        t.TABLENAME,
-        t.DATABASE,
-        t.OBJTYPE,
-        t.CREATEDATE,
-        t.SCHEMA
-    FROM _V_RELATION_TABLE t
-    WHERE UPPER(t.OWNER) = UPPER('${username}')
-    ORDER BY t.DATABASE, t.SCHEMA, t.TABLENAME;" "Tables owned by ${username}"
+        OBJNAME AS TABLENAME,
+        DATABASE,
+        OBJTYPE,
+        CREATEDATE,
+        SCHEMA
+    FROM _V_OBJ_RELATION_XDB
+    WHERE UPPER(OWNER) = UPPER('${username}')
+    AND OBJTYPE = 'TABLE'
+    ORDER BY DATABASE, SCHEMA, OBJNAME;" "Tables owned by ${username}"
     
     # Views owned by user - SEARCH ACROSS ALL DATABASES
     echo ""
     echo -e "${CYAN}Views owned by ${username} (across all databases):${NC}"
     execute_sql "
     SELECT 
-        v.VIEWNAME,
-        v.DATABASE,
-        v.CREATEDATE,
-        v.SCHEMA
-    FROM _V_RELATION_VIEW v
-    WHERE UPPER(v.OWNER) = UPPER('${username}')
-    ORDER BY v.DATABASE, v.SCHEMA, v.VIEWNAME;" "Views owned by ${username}"
+        OBJNAME AS VIEWNAME,
+        DATABASE,
+        CREATEDATE,
+        SCHEMA
+    FROM _V_OBJ_RELATION_XDB
+    WHERE UPPER(OWNER) = UPPER('${username}')
+    AND OBJTYPE = 'VIEW'
+    ORDER BY DATABASE, SCHEMA, OBJNAME;" "Views owned by ${username}"
     
     # Sequences owned by user - SEARCH ACROSS ALL DATABASES
     echo ""
     echo -e "${CYAN}Sequences owned by ${username} (across all databases):${NC}"
     execute_sql "
     SELECT 
-        s.SEQNAME,
-        s.DATABASE,
-        s.CREATEDATE,
-        s.SCHEMA
-    FROM _V_RELATION_SEQUENCE s
-    WHERE UPPER(s.OWNER) = UPPER('${username}')
-    ORDER BY s.DATABASE, s.SCHEMA, s.SEQNAME;" "Sequences owned by ${username}"
+        OBJNAME AS SEQNAME,
+        DATABASE,
+        CREATEDATE,
+        SCHEMA
+    FROM _V_OBJ_RELATION_XDB
+    WHERE UPPER(OWNER) = UPPER('${username}')
+    AND OBJTYPE = 'SEQUENCE'
+    ORDER BY DATABASE, SCHEMA, OBJNAME;" "Sequences owned by ${username}"
     
     # Get total count - ACROSS ALL DATABASES
     local total_objects=$($NZSQL_CMD -t -c "
-    SELECT 
-        (SELECT COUNT(*) FROM _V_RELATION_TABLE WHERE UPPER(OWNER) = UPPER('${username}')) +
-        (SELECT COUNT(*) FROM _V_RELATION_VIEW WHERE UPPER(OWNER) = UPPER('${username}')) +
-        (SELECT COUNT(*) FROM _V_RELATION_SEQUENCE WHERE UPPER(OWNER) = UPPER('${username}'))
-    AS TOTAL_OBJECTS;" 2>/dev/null | tr -d ' ')
+    SELECT COUNT(*) 
+    FROM _V_OBJ_RELATION_XDB 
+    WHERE UPPER(OWNER) = UPPER('${username}')
+    AND OBJTYPE IN ('TABLE', 'VIEW', 'SEQUENCE');" 2>/dev/null | tr -d ' \n\r')
     
     echo ""
-    print_success "Total objects owned by ${username}: ${total_objects}"
+    print_success "Total objects owned by ${username}: ${total_objects:-0}"
     
-    if [[ "$total_objects" -gt 0 ]]; then
+    if [[ -n "$total_objects" && "$total_objects" -gt 0 ]]; then
         echo -e "${YELLOW}Note: This user owns objects and cannot be dropped without transferring ownership first${NC}"
     else
         echo -e "${GREEN}This user owns no objects and can be dropped safely${NC}"
@@ -4052,23 +4054,37 @@ drop_user_with_ownership_transfer() {
         fi
     done
     
-    # Check if user owns any objects - ACROSS ALL DATABASES
+    # Check if user owns any objects - ACROSS ALL DATABASES using _V_OBJ_RELATION_XDB
     local owned_objects=$($NZSQL_CMD -t -c "
-    SELECT 
-        (SELECT COUNT(*) FROM _V_RELATION_TABLE WHERE UPPER(OWNER) = UPPER('${username}')) +
-        (SELECT COUNT(*) FROM _V_RELATION_VIEW WHERE UPPER(OWNER) = UPPER('${username}')) +
-        (SELECT COUNT(*) FROM _V_RELATION_SEQUENCE WHERE UPPER(OWNER) = UPPER('${username}'))
-    AS TOTAL_OBJECTS;" 2>/dev/null | tr -d ' ')
+    SELECT COUNT(*) 
+    FROM _V_OBJ_RELATION_XDB 
+    WHERE UPPER(OWNER) = UPPER('${username}')
+    AND OBJTYPE IN ('TABLE', 'VIEW', 'SEQUENCE');" 2>/dev/null | tr -d ' \n\r')
     
     echo ""
     echo -e "${CYAN}User Information:${NC}"
     echo "Username: $username"
-    echo "Owned Objects: $owned_objects (across all databases)"
     
-    if [[ "$owned_objects" -gt 0 ]]; then
+    # Check if query returned empty (view doesn't exist)
+    if [[ -z "$owned_objects" ]]; then
+        echo "Owned Objects: Unknown (unable to query system views)"
         echo ""
-        echo -e "${YELLOW}This user owns $owned_objects object(s)${NC}"
-        echo "Ownership must be transferred before dropping the user"
+        echo -e "${YELLOW}⚠️  System views not available for object count${NC}"
+        echo -e "${YELLOW}Proceeding with ownership transfer - nz_change_owner will discover all objects${NC}"
+        
+        # Always proceed with transfer if we can't verify
+        local force_transfer=true
+    else
+        echo "Owned Objects: $owned_objects (across all databases)"
+        local force_transfer=false
+    fi
+    
+    if [[ "$owned_objects" -gt 0 ]] || [[ "$force_transfer" == "true" ]]; then
+        if [[ "$force_transfer" != "true" ]]; then
+            echo ""
+            echo -e "${YELLOW}This user owns $owned_objects object(s)${NC}"
+            echo "Ownership must be transferred before dropping the user"
+        fi
         echo ""
         
         # Show detailed object breakdown
@@ -4122,13 +4138,12 @@ drop_user_with_ownership_transfer() {
         
         # Verify all objects transferred - ACROSS ALL DATABASES
         owned_objects=$($NZSQL_CMD -t -c "
-        SELECT 
-            (SELECT COUNT(*) FROM _V_RELATION_TABLE WHERE UPPER(OWNER) = UPPER('${username}')) +
-            (SELECT COUNT(*) FROM _V_RELATION_VIEW WHERE UPPER(OWNER) = UPPER('${username}')) +
-            (SELECT COUNT(*) FROM _V_RELATION_SEQUENCE WHERE UPPER(OWNER) = UPPER('${username}'))
-        AS TOTAL_OBJECTS;" 2>/dev/null | tr -d ' ')
+        SELECT COUNT(*) 
+        FROM _V_OBJ_RELATION_XDB 
+        WHERE UPPER(OWNER) = UPPER('${username}')
+        AND OBJTYPE IN ('TABLE', 'VIEW', 'SEQUENCE');" 2>/dev/null | tr -d ' \n\r')
         
-        if [[ "$owned_objects" -gt 0 ]]; then
+        if [[ -n "$owned_objects" && "$owned_objects" -gt 0 ]]; then
             print_error "User still owns $owned_objects object(s) across databases. Cannot drop user."
             return 1
         fi
@@ -4158,20 +4173,51 @@ drop_user_with_ownership_transfer() {
 view_user_owned_objects_count() {
     local username="$1"
     
-    # Use _V_RELATION_* views to search across ALL databases
+    # Use _V_OBJ_RELATION_XDB for cross-database queries (Netezza 11.2+)
+    # This view works across ALL databases, unlike _V_TABLE which is database-specific
+    local total_count=$($NZSQL_CMD -t -c "
+    SELECT COUNT(*) 
+    FROM _V_OBJ_RELATION_XDB 
+    WHERE UPPER(OWNER) = UPPER('${username}')
+    AND OBJTYPE IN ('TABLE', 'VIEW', 'SEQUENCE');" 2>/dev/null | tr -d ' \n\r')
+    
     local table_count=$($NZSQL_CMD -t -c "
-    SELECT COUNT(*) FROM _V_RELATION_TABLE WHERE UPPER(OWNER) = UPPER('${username}');" 2>/dev/null | tr -d ' ')
+    SELECT COUNT(*) 
+    FROM _V_OBJ_RELATION_XDB 
+    WHERE UPPER(OWNER) = UPPER('${username}')
+    AND OBJTYPE = 'TABLE';" 2>/dev/null | tr -d ' \n\r')
     
     local view_count=$($NZSQL_CMD -t -c "
-    SELECT COUNT(*) FROM _V_RELATION_VIEW WHERE UPPER(OWNER) = UPPER('${username}');" 2>/dev/null | tr -d ' ')
+    SELECT COUNT(*) 
+    FROM _V_OBJ_RELATION_XDB 
+    WHERE UPPER(OWNER) = UPPER('${username}')
+    AND OBJTYPE = 'VIEW';" 2>/dev/null | tr -d ' \n\r')
     
     local seq_count=$($NZSQL_CMD -t -c "
-    SELECT COUNT(*) FROM _V_RELATION_SEQUENCE WHERE UPPER(OWNER) = UPPER('${username}');" 2>/dev/null | tr -d ' ')
+    SELECT COUNT(*) 
+    FROM _V_OBJ_RELATION_XDB 
+    WHERE UPPER(OWNER) = UPPER('${username}')
+    AND OBJTYPE = 'SEQUENCE';" 2>/dev/null | tr -d ' \n\r')
     
-    echo "  - Tables: $table_count (across all databases)"
-    echo "  - Views: $view_count (across all databases)"
-    echo "  - Sequences: $seq_count (across all databases)"
-    echo "  - Total: $((table_count + view_count + seq_count))"
+    # Check if queries returned empty/null (view doesn't exist or failed)
+    if [[ -z "$total_count" ]]; then
+        print_warning "_V_OBJ_RELATION_XDB view not available or returned NULL"
+        echo ""
+        echo -e "${YELLOW}⚠️  Unable to query object counts with current database views${NC}"
+        echo -e "${YELLOW}The nz_change_owner utility will discover all objects across all databases${NC}"
+        echo -e "${YELLOW}You will see the complete list in the generated SQL script${NC}"
+        echo ""
+        echo "  - Tables: Unknown (will be discovered by nz_change_owner)"
+        echo "  - Views: Unknown (will be discovered by nz_change_owner)"
+        echo "  - Sequences: Unknown (will be discovered by nz_change_owner)"
+        echo "  - Total: Unknown (nz_change_owner will find all objects)"
+    else
+        # Valid counts returned
+        echo "  - Tables: ${table_count:-0} (across all databases)"
+        echo "  - Views: ${view_count:-0} (across all databases)"
+        echo "  - Sequences: ${seq_count:-0} (across all databases)"
+        echo "  - Total: ${total_count:-0}"
+    fi
 }
 
 #=============================================================================
@@ -4188,9 +4234,12 @@ list_all_database_users() {
         u.VALIDUNTIL,
         u.USESUPER AS IS_SUPERUSER,
         u.USECREATEDB AS CAN_CREATE_DB,
-        (SELECT COUNT(*) FROM _V_RELATION_TABLE t WHERE t.OWNER = u.NAME) AS TABLES_OWNED,
-        (SELECT COUNT(*) FROM _V_RELATION_VIEW v WHERE v.OWNER = u.NAME) AS VIEWS_OWNED,
-        (SELECT COUNT(*) FROM _V_RELATION_SEQUENCE s WHERE s.OWNER = u.NAME) AS SEQS_OWNED
+        (SELECT COUNT(*) FROM _V_OBJ_RELATION_XDB o 
+         WHERE o.OWNER = u.NAME AND o.OBJTYPE = 'TABLE') AS TABLES_OWNED,
+        (SELECT COUNT(*) FROM _V_OBJ_RELATION_XDB o 
+         WHERE o.OWNER = u.NAME AND o.OBJTYPE = 'VIEW') AS VIEWS_OWNED,
+        (SELECT COUNT(*) FROM _V_OBJ_RELATION_XDB o 
+         WHERE o.OWNER = u.NAME AND o.OBJTYPE = 'SEQUENCE') AS SEQS_OWNED
     FROM _V_USER u
     ORDER BY u.NAME;" "All Database Users with Object Counts (Across All Databases)"
 }
