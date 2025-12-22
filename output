@@ -1,14 +1,762 @@
-Dropping a DB User with DB Objects
+ /nz/support/bin/nz_change_owner -from YET66  -to FCBORPHAN
 
-Dropping a DB user:
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "CID1DV"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "CID1DV"
 
-In the event the NZA_tls_user_maint.sh script fails to drop a user due to objects owned by the user. The DBA team will change the ownership of these objects to the FCBORPHAN user. Then the user will be dropped with the next execute of the script.
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "CIDDIM"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "CIDDIM"
 
-/nz/support/bin/nz_change_owner -from <USERTODEL> -to FCBORPHAN >> /export/home/nz/DBA_Scripts/logs/changeowner <USERTODEL>.sql
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "CIDDV"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "CIDDV"
 
-Example : /nz/support/bin/nz_change_owner -from AB4A -to FCBORPHAN >> /export/home/nz/DBA_Scripts/logs/changeownerAB4A.sql
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "CIDDV_CDS"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "CIDDV_CDS"
 
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "CIDDV_ELD"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "CIDDV_ELD"
 
-nzsql -f /export/home/nz/DBA_Scripts/logs/ changeowner <USERTODEL>.sql -o /export/home/nz/DBA_Scripts/logs/ changeowner <USERTODEL>.out
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "CIDDV_ERD"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "CIDDV_ERD"
 
-Example: nzsql -f /export/home/nz/DBA_Scripts/logs/changeownerAB4A.sql -o /export/home/nz/DBA_Scripts/logs/changeownerAB4A.out
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "CIDDV_FPA"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "CIDDV_FPA"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "CIDDV_GLD"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "CIDDV_GLD"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "CIDDV_MIG"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "CIDDV_MIG"
+
+\echo
+\echo *****  Changing owner of TABLE FCBSTG.AMA_PCS_ACCOUNT_MONTHLY to "FCBORPHAN"
+ALTER TABLE     FCBSTG.AMA_PCS_ACCOUNT_MONTHLY OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of TABLE FCBSTG.AMA_PCS_CALL_ACTIVITY to "FCBORPHAN"
+ALTER TABLE     FCBSTG.AMA_PCS_CALL_ACTIVITY OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of TABLE FCBSTG.AMA_PCS_CLOSED_REASON to "FCBORPHAN"
+ALTER TABLE     FCBSTG.AMA_PCS_CLOSED_REASON OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of TABLE FCBSTG.AMA_PCS_CUSTOMER to "FCBORPHAN"
+ALTER TABLE     FCBSTG.AMA_PCS_CUSTOMER OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of TABLE FCBSTG.AMA_PCS_CUSTOMER_ACCOUNT to "FCBORPHAN"
+ALTER TABLE     FCBSTG.AMA_PCS_CUSTOMER_ACCOUNT OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of TABLE FCBSTG.AMA_PCS_CUSTOMER_ACCOUNT_DETAIL to "FCBORPHAN"
+ALTER TABLE     FCBSTG.AMA_PCS_CUSTOMER_ACCOUNT_DETAIL OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of TABLE FCBSTG.AMA_PCS_CUSTOMER_RELATIONSHIP to "FCBORPHAN"
+ALTER TABLE     FCBSTG.AMA_PCS_CUSTOMER_RELATIONSHIP OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of TABLE FCBSTG.AMA_PCS_EBANK_USAGE to "FCBORPHAN"
+ALTER TABLE     FCBSTG.AMA_PCS_EBANK_USAGE OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of TABLE FCBSTG.AMA_PCS_PERSHING_PROCESS to "FCBORPHAN"
+ALTER TABLE     FCBSTG.AMA_PCS_PERSHING_PROCESS OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of TABLE FCBSTG.AMA_PCS_PROCESS to "FCBORPHAN"
+ALTER TABLE     FCBSTG.AMA_PCS_PROCESS OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of TABLE FCBSTG.AMA_PCS_TEAM to "FCBORPHAN"
+ALTER TABLE     FCBSTG.AMA_PCS_TEAM OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of TABLE FCBSTG.ISB_MERGER_COLLATERAL_MAP to "FCBORPHAN"
+ALTER TABLE     FCBSTG.ISB_MERGER_COLLATERAL_MAP OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of TABLE FCBSTG.ISB_MERGER_LOAN_MAP to "FCBORPHAN"
+ALTER TABLE     FCBSTG.ISB_MERGER_LOAN_MAP OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of TABLE FCBSTG.KEY_RELCROSSCOLLATERAL to "FCBORPHAN"
+ALTER TABLE     FCBSTG.KEY_RELCROSSCOLLATERAL OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of TABLE FCBSTG.LOAN to "FCBORPHAN"
+ALTER TABLE     FCBSTG.LOAN OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of TABLE FCBSTG.LOAN_DETAILS to "FCBORPHAN"
+ALTER TABLE     FCBSTG.LOAN_DETAILS OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of TABLE FCBSTG.TMP_BGN_DIM_ACCOUNT to "FCBORPHAN"
+ALTER TABLE     FCBSTG.TMP_BGN_DIM_ACCOUNT OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of TABLE FCBSTG.TMP_BGN_FACT_CRE_COLLATERAL to "FCBORPHAN"
+ALTER TABLE     FCBSTG.TMP_BGN_FACT_CRE_COLLATERAL OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of TABLE FCBSTG.TMP_BGN_FACT_CRE_REL_COLLAT_LOAN to "FCBORPHAN"
+ALTER TABLE     FCBSTG.TMP_BGN_FACT_CRE_REL_COLLAT_LOAN OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of TABLE FCBSTG.TMP_BGN_FAL_ACCT_SEG_KEY_DIFFS to "FCBORPHAN"
+ALTER TABLE     FCBSTG.TMP_BGN_FAL_ACCT_SEG_KEY_DIFFS OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of TABLE FCBSTG.TMP_BGN_FAL_ADVERSELY_CLSFD_FLAG_DIFFS to "FCBORPHAN"
+ALTER TABLE     FCBSTG.TMP_BGN_FAL_ADVERSELY_CLSFD_FLAG_DIFFS OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of TABLE FCBSTG.TMP_BGN_FAL_ALLL_CAT_1_KEY_DIFFS to "FCBORPHAN"
+ALTER TABLE     FCBSTG.TMP_BGN_FAL_ALLL_CAT_1_KEY_DIFFS OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of TABLE FCBSTG.TMP_BGN_FAL_ALLL_CAT_2_KEY_DIFFS to "FCBORPHAN"
+ALTER TABLE     FCBSTG.TMP_BGN_FAL_ALLL_CAT_2_KEY_DIFFS OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of TABLE FCBSTG.TMP_BGN_FAL_BCC_KEY_DIFFS to "FCBORPHAN"
+ALTER TABLE     FCBSTG.TMP_BGN_FAL_BCC_KEY_DIFFS OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of TABLE FCBSTG.TMP_BGN_FAL_EXPOSURE_KEY_DIFFS to "FCBORPHAN"
+ALTER TABLE     FCBSTG.TMP_BGN_FAL_EXPOSURE_KEY_DIFFS OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of VIEW FCBSTG.V_FACT_CUSTOMER_CUSTOMER_INPUT to "FCBORPHAN"
+ALTER VIEW      FCBSTG."V_FACT_CUSTOMER_CUSTOMER_INPUT" OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of VIEW FCBSTG.V_FACT_PARTICIPATION_ACCOUNT to "FCBORPHAN"
+ALTER VIEW      FCBSTG."V_FACT_PARTICIPATION_ACCOUNT" OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of VIEW FCBSTG.V_DIM_CUSTOMER to "FCBORPHAN"
+ALTER VIEW      FCBSTG.V_DIM_CUSTOMER OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of VIEW FCBSTG.V_DIM_CUSTOMER_ADDRESS_ERDM to "FCBORPHAN"
+ALTER VIEW      FCBSTG.V_DIM_CUSTOMER_ADDRESS_ERDM OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of VIEW FCBSTG.V_DIM_CUSTOMER_ERDM to "FCBORPHAN"
+ALTER VIEW      FCBSTG.V_DIM_CUSTOMER_ERDM OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of VIEW FCBSTG.V_DIM_OCCUPANCY_XREF_ERDM to "FCBORPHAN"
+ALTER VIEW      FCBSTG.V_DIM_OCCUPANCY_XREF_ERDM OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of VIEW FCBSTG.V_DIM_OFFICER to "FCBORPHAN"
+ALTER VIEW      FCBSTG.V_DIM_OFFICER OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of VIEW FCBSTG.V_DIM_OFFICER_ERDM to "FCBORPHAN"
+ALTER VIEW      FCBSTG.V_DIM_OFFICER_ERDM OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of VIEW FCBSTG.V_DIM_POLICY_EXCEPTION_CROSS_REFERENCE_ERDM to "FCBORPHAN"
+ALTER VIEW      FCBSTG.V_DIM_POLICY_EXCEPTION_CROSS_REFERENCE_ERDM OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of VIEW FCBSTG.V_DIM_PRIMARY_BRANCH_HIERARCHY_ERDM to "FCBORPHAN"
+ALTER VIEW      FCBSTG.V_DIM_PRIMARY_BRANCH_HIERARCHY_ERDM OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of VIEW FCBSTG.V_FACT_ACCOUNT_OREO_ERDM to "FCBORPHAN"
+ALTER VIEW      FCBSTG.V_FACT_ACCOUNT_OREO_ERDM OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of VIEW FCBSTG.V_FACT_ACCOUNT_RATED_FACILITY_ERDM to "FCBORPHAN"
+ALTER VIEW      FCBSTG.V_FACT_ACCOUNT_RATED_FACILITY_ERDM OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of VIEW FCBSTG.V_FACT_CUSTOMER_ACCOUNT_ERDM to "FCBORPHAN"
+ALTER VIEW      FCBSTG.V_FACT_CUSTOMER_ACCOUNT_ERDM OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of VIEW FCBSTG.V_FACT_CUSTOMER_ACCOUNT_RPM to "FCBORPHAN"
+ALTER VIEW      FCBSTG.V_FACT_CUSTOMER_ACCOUNT_RPM OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo *****  Changing owner of VIEW FCBSTG.V_FACT_POLICY_EXCEPTION_CROSS_REFERENCE_ERDM to "FCBORPHAN"
+ALTER VIEW      FCBSTG.V_FACT_POLICY_EXCEPTION_CROSS_REFERENCE_ERDM OWNER TO "FCBORPHAN" ;
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "CIDDV_RDP"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "CIDDV_RDP"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "CIDDV_RDR"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "CIDDV_RDR"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "CIDDV_REG"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "CIDDV_REG"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "CIDDV_RLN"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "CIDDV_RLN"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "CIDDV_RLO"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "CIDDV_RLO"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "CIDDV_RRD"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "CIDDV_RRD"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "CIDDV_TEMP"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "CIDDV_TEMP"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "CIDRA"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "CIDRA"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "DENDV"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "DENDV"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "HISTDB"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "HISTDB"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "INZA"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "INZA"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "MEPDV"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "MEPDV"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "NZA"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "NZA"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "NZM"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "NZM"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "NZMSG"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "NZMSG"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "NZPY"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "NZPY"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "NZR"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "NZR"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "NZRC"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "NZRC"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "NZVERIFY"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "NZVERIFY"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "SQLTOOLKIT"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "SQLTOOLKIT"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "STGDV"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "STGDV"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "STGDV_CDS"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "STGDV_CDS"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "STGDV_ELD"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "STGDV_ELD"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "STGDV_ERD"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "STGDV_ERD"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "STGDV_FPA"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "STGDV_FPA"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "STGDV_GLD"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "STGDV_GLD"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "STGDV_LZP"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "STGDV_LZP"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "STGDV_MIG"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "STGDV_MIG"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "STGDV_RDP"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "STGDV_RDP"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "STGDV_RDR"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "STGDV_RDR"
+
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\echo
+\echo '*****  Connecting to database:  "STGDV_REG"'
+\echo
+\echo
+\echo ************************************************************
+\echo ************************************************************
+\echo ************************************************************
+\echo
+\connect "STGDV_REG"
+
