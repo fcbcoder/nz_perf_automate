@@ -3879,7 +3879,8 @@ transfer_ownership_only() {
         return 0
     fi
     
-    # Execute ownership transfer    execute_ownership_transfer "$from_user" "$to_user"
+    # Execute ownership transfer
+    execute_ownership_transfer "$from_user" "$to_user"
 }
 
 #=============================================================================
