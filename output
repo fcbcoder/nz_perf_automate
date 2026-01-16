@@ -1,110 +1,99 @@
+ nzsqa schedqueues -sys
+SCHED TIME:  2026-01-16 10:27:59.373 EST
 
-================================================================================================
-DATABASE USER MANAGEMENT
-Mon Dec 22 12:52:13 EST 2025
-================================================================================================
+SCHEDULER POLICY:
+    GRA                      max slots =   48    SQB slots =  10
+    Snippet         Enabled  max slots =   40    SQB slots =   6
+    SQB (< 2s)      Enabled
+    LBS            Disabled
+    SN Limiting    Disabled
+    GRALoad         Enabled
+    Null I/O -> Ceilings:on Available:on Expected:on SNLimit:on
 
-This section provides safe user management capabilities including:
-- Transferring object ownership before dropping users
-- Using nz_change_owner utility for bulk ownership transfer
-- Dry-run mode to preview changes
-- Safety checks and validation
+KNOWN RESOURCE GROUPS:
+    OID=    4900  Min 100  Max 100%  JobMax  0 (off)     "ADMIN"
+    OID=  201937  Min  10  Max 100%  JobMax  0 (off)     "ADM_GRP"
+    OID=  324653  Min  15  Max  90%  JobMax  0 (off)     "BUSINESS_USERS"
+    OID=  324658  Min  30  Max 100%  JobMax  0 (off)     "ANALYTICS"
+    OID=  324661  Min  35  Max 100%  JobMax  0 (off)     "DATA_INTEGRATION"
 
-User Management Options:
-1. Drop user with automatic ownership transfer
-2. View user's owned objects
-3. Transfer ownership only (no user drop)
-4. List all database users
-5. Check user permissions and grants
-6. Return to main menu
+GRA SCHED:
+             Short Long     |   Resource        |
+    Waiting     0    6      |   Horizon  3600s  |
+    Running     3   19      |   Interval   60s  |  Activity 100.0%
 
-Choose user management option (1-6): 3
+    GroupOID=    4900   Allowed:Exp  50:  3%h  50:  3%i   Used   5%h   2%i   Exempt "ADMIN"
+    GroupOID=  201937   Allowed:Exp   0:  0%h   0:  0%i   Used   0%h   0%i   Balanced "ADM_GRP"
+    GroupOID=  324658   Allowed:Exp  19: 36%h  19: 35%i   Used  17%h  14%i   Balanced "ANALYTICS"
+    GroupOID=  324653   Allowed:Exp   9: 18%h   9: 19%i   Used  14%h  23%i   Overserved "BUSINESS_USERS"
+      WAITING (LONG) (count 6)
+       planid   cmd slice  est:plan/sched  p  snip   c  mem:h/s/s_act   temp    wt/req   age:snip/plan/nullio  scan  %  client            sd rules  flags
+    ---------   --- ------ ------- ------- - --- --- - ----- ---- ---- ------- ---- ---- ------ ------ ------ -- -- --- ----------------- -- ------ --------
+      4183369+1 JIT     #0     1.0     0.0 N   0   1 0     0    0    0       0              0.0    6.7         0  1   0 383/393780/6487185
+      4183350   INS     #0     0.0     0.0 N   0   1 0     0    0    0       0              0.0   15.1         0  1   0 387/393784/6487401
+      4183353   INS     #0     0.0     0.0 N   0   1 0     0    0    0       0              0.0   12.1         0  1   0 919/370271/6228798
+      4183354   INS     #0     0.0     0.0 N   0   1 0     0    0    0       0              0.0   11.9         0  1   0 904/373236/6273918
+      4183364+1 UPD     #0     0.4     0.3 N   1   4 0     0    0    0       0              0.0    7.2         0  1   0 920/370272/6228805
+      4183367   UPD     #0     0.2     0.2 N   1   3 0     0    0    0       0              0.0    7.0         0  1   0 989/370339/6236270
 
---- Transfer Object Ownership ---
-Enter source username (FROM): ZNO50
-Enter target username (TO): FCBORPHAN
+    GroupOID=  324661   Allowed:Exp  22: 30%h  22: 29%i   Used  64%h  61%i   Very Overserved "DATA_INTEGRATION"
 
-Objects that will be transferred from ZNO50 to FCBORPHAN:
-  - Tables: 0 (across all databases)
-  - Views: 3 (across all databases)
-  - Sequences: 0 (across all databases)
-  - Total: 3
+SNIPPET SCHED:     Avail   Avail
+                   Short   Long  InUse    Max  Delta Reserved
+    Host Memory   519605 519093   4683 524288      0    512
+    Blade Memory   45255  44855  11175  56430      0    400
+    Channels          72     72     28    100
+    Distributes       19     18      5     24      0      1
+    Spu2Hosts         85     85      7    100      0      0
+    Broadcasts        68     68      6     80      0      0
 
-Continue with ownership transfer? (y/n): y
+                  Short     Long     |   Resource        |
+    Waiting          0        0      |   Horizon   600s  |
+    SPU  Running   3.0/3   10.9/12   |   Interval   10s  |  Activity 100.0%
+    Host Running     0        4
 
-Press Enter to continue...
+    Load equiv 4.00, total load rate 1300.27 MB/s, max load 325.07 MB/s, modifier 1.44
 
-Press Enter to return to main menu...
+    GroupOID=    4900   Allowed:Exp  50:  3%h  49:  3%i   Used  13%h   2%i   Exempt "ADMIN" no work
+      RUNNING (count 1) (mod +400.0%)
+       planid   cmd slice  est:plan/sched  p  snip   c  mem:h/s/s_act   temp    wt/req   age:snip/plan/nullio  scan  %  client            sd rules  flags
+    ---------   --- ------ ------- ------- - --- --- - ----- ---- ---- ------- ---- ---- ------ ------ ------ -- -- --- ----------------- -- ------ --------
+      4183366   GEN   #384   120.0     0.0 N  21  21 1    13   17    0       0  50%/ 50%    1.2    7.2         0  1   0 390/393787/6487507           Rx
 
-================================================================================================
-NETEZZA PERFORMANCE TOOL - MAIN MENU
-Mon Dec 22 12:52:41 EST 2025
-================================================================================================
+    GroupOID=  324658   Allowed:Exp  19: 36%h  19: 33%i   Used  15%h   0%i   Underserved "ANALYTICS" no work
+      RUNNING (count 1) (mod +400.0%)
+       planid   cmd slice  est:plan/sched  p  snip   c  mem:h/s/s_act   temp    wt/req   age:snip/plan/nullio  scan  %  client            sd rules  flags
+    ---------   --- ------ ------- ------- - --- --- - ----- ---- ---- ------- ---- ---- ------ ------ ------ -- -- --- ----------------- -- ------ --------
+      4160685+6 SEL   #384   256.7    18.0 N  72  88 2    12  287  242   37970  19%/ 19%  393.4 1895.7         3 256  86 212/383402/6387156  d        Rx
 
-Available Options:
-1. Active Sessions & Transactions Analysis
-2. Real-time & Historical Query Performance
-3. Cost-Based Query Performance Analysis
-4. Explain Plan Analysis (Interactive)
-5. System State & Resource Monitoring
-6. Historical Query Analysis (HISTDB)
-7. (Reserved for future functionality)
-8. System State & Monitoring
-9. Session Management & Termination
-10. User Management & Drop with Ownership Transfer ⭐
-11. Configure Settings
-12. Exit
+    GroupOID=  201937   Allowed:Exp   0:  0%h   0:  0%i   Used   0%h   0%i   Balanced "ADM_GRP" no work
+    GroupOID=  324653   Allowed:Exp   9: 19%h  10: 20%i   Used  13%h  39%i   Overserved "BUSINESS_USERS" no work
+      RUNNING (count 5) (mod -400.0%)
+       planid   cmd slice  est:plan/sched  p  snip   c  mem:h/s/s_act   temp    wt/req   age:snip/plan/nullio  scan  %  client            sd rules  flags
+    ---------   --- ------ ------- ------- - --- --- - ----- ---- ---- ------- ---- ---- ------ ------ ------ -- -- --- ----------------- -- ------ --------
+      3864329+963 SEL     #0 99999.9   515.9 N 1511 1514                             0%/  2% 13850.9 33326.7         3  3 100 315/358683/6003925 s         Rx ceil dlim!p drat!p unb udf uda
+      3881485+963 SEL     #0 99999.9   514.5 N 1511 1514 2  2569  351  143      27   2%/  2% 12744.7 30694.8         3  3 100 837/359175/6015194 s         Rx dlim!p drat!p unb udf uda
+      4169309+1 SEL   #384   188.5     7.9 N   7   8 2     5 2500  216    2732   2%/  2% 1177.7 1207.8        11 36  95 270/392779/6470877 sd        Rx drat!p
+      4182542+70 SEL   #384 99999.9   102.3 N 259 459 1    76   19    0       0   2%/  2%    0.0  145.7         0  1   0 980/383147/6385003           Rx drat!p udf
+      4183235+70 SEL   #384 99999.9   102.3 N 134 459 2    74   34    0       0   2%/  2%    0.1   52.3         0  1   0 878/393321/6478175  d        Rx drat!p udf
 
-Select an option (1-12): 10
-
-================================================================================================
-DATABASE USER MANAGEMENT
-Mon Dec 22 12:52:43 EST 2025
-================================================================================================
-
-This section provides safe user management capabilities including:
-- Transferring object ownership before dropping users
-- Using nz_change_owner utility for bulk ownership transfer
-- Dry-run mode to preview changes
-- Safety checks and validation
-
-User Management Options:
-1. Drop user with automatic ownership transfer
-2. View user's owned objects
-3. Transfer ownership only (no user drop)
-4. List all database users
-5. Check user permissions and grants
-6. Return to main menu
-
-Choose user management option (1-6): 2
-
---- View User's Owned Objects ---
-Enter username to check: ZNO50
-
-
---- Checking objects owned by user: ZNO50 ---
-
-Tables owned by ZNO50 (across all databases):
- TABLENAME | DATABASE | OBJTYPE | CREATEDATE | SCHEMA
------------+----------+---------+------------+--------
-(0 rows)
-
-
-Views owned by ZNO50 (across all databases):
-             VIEWNAME              | DATABASE  |     CREATEDATE      | SCHEMA
------------------------------------+-----------+---------------------+--------
- V_ALLL_GROUP_CROSS_REFERENCE_ERDM | CIDDV_MIG | 2025-04-10 07:04:25 | FCBSTG
- V_ALLL_RESERVE_RATE_XREF_ERDM     | CIDDV_MIG | 2025-04-10 05:45:52 | FCBSTG
- V_DIM_ACCOUNT_SDB                 | CIDDV_MIG | 2025-04-10 02:14:21 | FCBSTG
-(3 rows)
-
-
-Sequences owned by ZNO50 (across all databases):
- SEQNAME | DATABASE | CREATEDATE | SCHEMA
----------+----------+------------+--------
-(0 rows)
-
-
-Total objects owned by ZNO50: 3
-Note: This user owns objects and cannot be dropped without transferring ownership first
+    GroupOID=  324661   Allowed:Exp  22: 33%h  22: 26%i   Used  60%h  58%i   Very Overserved "DATA_INTEGRATION" no work
+      RUNNING (count 15) (mod -400.0%)
+       planid   cmd slice  est:plan/sched  p  snip   c  mem:h/s/s_act   temp    wt/req   age:snip/plan/nullio  scan  %  client            sd rules  flags
+    ---------   --- ------ ------- ------- - --- --- - ----- ---- ---- ------- ---- ---- ------ ------ ------ -- -- --- ----------------- -- ------ --------
+      4182323   CRE   #384    33.2     0.0 H   2   2 1    39   13    4       0   2%/  2%  171.9  172.0  162.4  1  1  27 240/393658/6485306           Rx unload
+      4183257   INS     #0     0.0     0.0 H   0   1 1    36    0    0       0   2%/  2%   44.2   44.3   31.2  0  1   0 369/393766/6487000           Rx load
+      4183258   INS     #0     0.0     0.0 H   0   1 1    36    0    0       0   2%/  2%   44.2   44.3   31.1  0  1   0 370/393767/6487002           Rx load
+      4183260   INS     #0     0.0     0.0 H   0   1 1    36    0    0       0   2%/  2%   44.2   44.3   31.1  0  1   0 372/393769/6487004           Rx load
+      4183261   INS     #0     0.0     0.0 H   0   1 1    36    0    0       0   2%/  2%   44.1   44.3   31.1  0  1   0 373/393770/6487005           Rx load
+      4182415+5 CRE   #348     5.3     1.7 H  17  17 1    42  180   21      43   2%/  2%  108.2  160.2  100.9  1  2 100 256/393673/6485450 s         Rx unload
+      4183220   GEN   =107   120.0     0.0 H   1  21 1     8 2500  275      77   2%/  2%   57.6   57.6         1  2  33 258/393675/6485488 s         Rx
+      4183377+3 GEN   #384   120.0     0.0 H   7  20 1     8  167    0       0   2%/  2%    0.0    5.1         0  2   0 298/393703/6485911 s         Rx
+      4183392+1 GEN     #3   120.0     0.0 H   1  21 1     8 2500   85       0   2%/  2%    1.1    1.1         2  2 100 360/393758/6486961 s         Rx
+      4183380+9 CRE   #384    12.0     8.2 H  32  33 2     8 2500    0       0   2%/  2%    0.0    4.9         0  2   0 391/393788/6487505 sd        Rx udf
+      4183390   SEL   #384     0.0     0.0 N   4   4 1  1575 2500    0       0   1%/  1%    1.4    1.5         0  2   0 396/393793/6487606 s         Rx sqb unb
+      4183395   SEL   #384 99999.9     0.0 N  15  36 1     6   42    0       0   1%/  1%    0.0    0.5         0  1   0 1024/393434/6477290           Rx sqb uda
+      4183396   SEL   #384     0.0     0.0 N   2   9 2    14   16    0       0   1%/  1%    0.0    0.1         0  1   0 922/392450/6467592           Rx sqb
+      4183298+3 SEL   #384 99999.9    24.3 N  31  31 1    51 2500    0       0   1%/  1%   29.4   39.1         0  2   0 375/393772/6487055 s         Rx
+      4181165+32 SEL   #384 99999.9   402.4 N 536 572 2    32   85   64    1024   1%/  1%    2.8  286.2         1  1  84 503/392085/6462535  d        Rx
 
