@@ -1,13 +1,11 @@
-From Cynthia
-
-Love,
-All the queries that this part of my team runs are ad-hoc, and ad-hoc queries are a significant portion of their job.
-What other options are there, besides asking my team to work non-business hours to do their daily functions?
-Thanks,
-Cynthia
- 
 Hello Cynthia,
+Thank you for clarifying. I understand that ad-hoc queries are a core part of your team's daily work, and running them during non-business hours isn't a viable solution.
+To help us identify the best approach for your team, we'd like to gather some additional context. Specifically, it would be helpful to understand:
 
-Apologies for the confusion. My recommendation was for this particular case and recommendation doesn’t apply to everything your team is doing. 
+Which specific processes or queries are experiencing delays
+When these delays typically occur (time of day, day of week)
+Expected runtime for these queries under normal conditions
+Whether this is an ongoing issue or tied to particular peak periods
 
-Having said above: As suggested earlier if we someone can schedule a call or we can take the lead here, and fill us with the right information i.e. What processes are being delayed, when and what time? And how long are these processes going to run (example: Some teams may want to establish some baselines and would need our assistance in expediting there processes)
+With this information, we can explore targeted solutions—such as adjusting resource allocation, temporarily increasing query priority for specific users, or identifying optimization opportunities—and determine how long any interim measures would need to remain in place.
+Would you be available for a brief call to discuss, or would you prefer to share these details via email? Either way, we're committed to finding a solution that supports your team's day-to-day operations without disruption.
