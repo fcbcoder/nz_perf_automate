@@ -1,11 +1,20 @@
-Hello Cynthia,
-Thank you for clarifying. I understand that ad-hoc queries are a core part of your team's daily work, and running them during non-business hours isn't a viable solution.
-To help us identify the best approach for your team, we'd like to gather some additional context. Specifically, it would be helpful to understand:
+Hello [Senior Director's Name],
+I wanted to provide you with an update following our meeting with Cynthia's team regarding the ad-hoc query performance challenges they've been experiencing in the production environment.
+Meeting Summary:
+We met with the team to better understand their workload and explore viable solutions that wouldn't disrupt their daily operations. After discussing their specific use cases, we recommended redirecting their ad-hoc development queries to the UAT environment instead of PROD, which experiences significantly higher load during business hours.
+Recommended Solution:
 
-Which specific processes or queries are experiencing delays
-When these delays typically occur (time of day, day of week)
-Expected runtime for these queries under normal conditions
-Whether this is an ongoing issue or tied to particular peak periods
+Point SAS profiles to UAT for ad-hoc development work
+Team members may need to coordinate with their respective application teams to obtain necessary UAT access
 
-With this information, we can explore targeted solutions—such as adjusting resource allocation, temporarily increasing query priority for specific users, or identifying optimization opportunities—and determine how long any interim measures would need to remain in place.
-Would you be available for a brief call to discuss, or would you prefer to share these details via email? Either way, we're committed to finding a solution that supports your team's day-to-day operations without disruption.
+Key Details:
+
+UAT maintains similar capacity to PROD in terms of resources
+Given UAT's lower utilization during business hours, ad-hoc queries should experience notably better performance compared to PROD
+This approach addresses the performance concerns while maintaining business continuity
+
+Next Steps:
+The team can reach out to the DBA team for assistance with this transition, and we're committed to supporting them throughout the process.
+Please let me know if you need any additional information or have questions about this approach.
+Best regards,
+[Your Name]
