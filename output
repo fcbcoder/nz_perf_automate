@@ -1,26 +1,22 @@
-Hello Gary,
+Hi Gary,
 
-This is to bring to your attention; I was pulled into another page late night for an unrelated issue.  (Earlier I was pulled into DataStage issue posted in our Channel)
+I wanted to bring to your attention a recurring pattern that is causing unnecessary after-hours disruptions for our team.
 
-Bottom line:
+It appears L1/L2 teams have been instructed by their respective L3 groups to route any SQL-related issue directly to our queue — without first performing basic triage on their end. The concern here is that L1/L2 do not have access to Netezza, nor do they have knowledge of our NZ servers, read messages, or environment details. As a result, they are unable to determine whether an issue is actually Netezza-related before engaging us.
 
-What I am getting the feel is L1/L2 have been told by their respective teams to submit any SQL related issue to our queue (These L1/L2 folks don’t have any knowledge w.r.t the NZ servers, Read messages, etc)
+A recent example illustrates this well. Late last night, I was paged for the below error:
 
+  Job Invocation ID: DISPADS040D
+  Job: bSPPR004_ODS_ODS_CIS_CUSTOMER_n_V1_Refresh_from_Landing
+  Step: cSPPR004_CIS_ODS_3000_Load_SQL
+  Error: SQL0575N – View or materialized query table "DSLAND.V_ODS_CUSTOMER_DAILY_CURRENT" cannot be used because it has been marked inoperative. (SQLSTATE=51024)
+  DSN: LNDFCBPR | Schema: DSLAND
 
+This is clearly a DB2/Landing Zone issue — not a Netezza issue — and could have been identified by L3 before our team was engaged. I was also pulled in earlier the same night for a DataStage issue posted in our channel, which was similarly unrelated to our scope.
 
-Below Error
-Job invocation ID: DISPADS040D
-bSPPR004_ODS_ODS_CIS_CUSTOMER_n_V1_Refresh_from_Landing
-cSPPR004_CIS_ODS_3000_Load_SQL
-jSPPR004_3701_LZ_V_ODS_CUSTOMER_DAILY_CURRENT_Write_to_jSPPR004_3701_CIS_ODS_ds
-Error:
-DSLAND_V_ODS_CUSTOMER_DAILY_CURRENT_Rd,0: SQLExecute reported: SQLSTATE = 51024: Native Error Code = -575: Msg = [IBM][CLI Driver][DB2/AIX64] SQL0575N  View or materialized query table "DSLAND.V_ODS_CUSTOMER_DAILY_CURRENT" cannot be used because it has been marked inoperative.  SQLSTATE=51024 (CC_DB2DBStatement::executeSelect, file CC_DB2DBStatement.cpp, line 2,129)
- 
-psi_src.p_dsn = LNDFCBPR
-psi_src.p_schema = DSLAND
+My ask is that we establish a clear expectation: L1/L2 should first engage their respective L3 teams for proper diagnosis. Only once L3 has confirmed the issue is within our domain should a ticket be routed to our queue.
 
+Happy to discuss further if helpful.
 
-
-
-
-
+Thank you,
+[Your Name]
