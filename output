@@ -1,1 +1,26 @@
+Hello Gary,
+
+This is to bring to your attention; I was pulled into another page late night for an unrelated issue.  (Earlier I was pulled into DataStage issue posted in our Channel)
+
+Bottom line:
+
+What I am getting the feel is L1/L2 have been told by their respective teams to submit any SQL related issue to our queue (These L1/L2 folks don’t have any knowledge w.r.t the NZ servers, Read messages, etc)
+
+
+
+Below Error
+Job invocation ID: DISPADS040D
+bSPPR004_ODS_ODS_CIS_CUSTOMER_n_V1_Refresh_from_Landing
+cSPPR004_CIS_ODS_3000_Load_SQL
+jSPPR004_3701_LZ_V_ODS_CUSTOMER_DAILY_CURRENT_Write_to_jSPPR004_3701_CIS_ODS_ds
+Error:
+DSLAND_V_ODS_CUSTOMER_DAILY_CURRENT_Rd,0: SQLExecute reported: SQLSTATE = 51024: Native Error Code = -575: Msg = [IBM][CLI Driver][DB2/AIX64] SQL0575N  View or materialized query table "DSLAND.V_ODS_CUSTOMER_DAILY_CURRENT" cannot be used because it has been marked inoperative.  SQLSTATE=51024 (CC_DB2DBStatement::executeSelect, file CC_DB2DBStatement.cpp, line 2,129)
+ 
+psi_src.p_dsn = LNDFCBPR
+psi_src.p_schema = DSLAND
+
+
+
+
+
 
