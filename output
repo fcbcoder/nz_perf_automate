@@ -1,1 +1,5 @@
+Please log into each PROD NPS and increase the business_users group MIN from 15 to 25.   (TS021192938)
 
+**completed in NONPROD already RITM0947983
+
+ALTER GROUP business_users WITH RESOURCE MINIMUM 25;
