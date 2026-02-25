@@ -1,1 +1,38 @@
+export spassword=xxx
+export tpassword=xyg
+export sdb=CIDPR_022320260700
+export tdb=CIDPR
+export shost=nps-dr
+export thost=nps-pr
+export sschema=FCBAPP
+export tschema=FCBFIX
+export tables='
+DIM_CUSTOMER
+T_V_FACT_ACCOUNT_CUSTOMER_ERDM3
+FACT_PORTFOLIO_DETAIL_ERDM
+PORTFOLIO_DETAIL_LOANHUB'
+
+for table in $tables ; do
+nz_migrate -u admin -shost $shost -spassword $spassword -thost $thost -tpassword $tpassword -sdb $sdb -tdb $tdb -tschema $tschema -sschema $sschema -table $table -format binary -TruncateTargetTable yes -CreateTargetTable yes -threads 4 -cksum Yes -genStats FULL
+done 2>&1 | tee /export/home/nz/akj67/nz_migrate-$sdb-$schema-to-$tdb.log
+
+eror 
+
+
+Problems were encountered when trying to connect to the SOURCE database/host
+via the following method.  Please correct the underlying problem and try again.
+
+export NZ_HOST=nps-dr
+export NZ_USER=admin
+export NZ_DATABASE=CIDPR_022320260700
+export NZ_SCHEMA=FCBAPP
+export NZ_PASSWORD=<is set, but is not being echoed back out>
+
+A simple 'nzsql' command threw the following error:
+nzsql: Password authentication failed for user 'ADMIN'
+
+
+Problems were encountered when trying to connect to the SOURCE database/host
+via the following method.  Please correct the underlying problem and try again.
+
 
